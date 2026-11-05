@@ -7,10 +7,10 @@ import XCTest
 /// schedule. Read-only. Skipped unless these are set (xcodebuild passes `TEST_RUNNER_`-
 /// prefixed variables through to the test process):
 ///
-///   TEST_RUNNER_NOSTALGEX_LIVE_COLLECTIONS_BACKEND  plex | jellyfin | emby
+///   TEST_RUNNER_NOSTALGEX_LIVE_COLLECTIONS_BACKEND  jellyfin
 ///   TEST_RUNNER_NOSTALGEX_LIVE_COLLECTIONS_URL      server base URL
 ///   TEST_RUNNER_NOSTALGEX_LIVE_COLLECTIONS_TOKEN    token
-///   TEST_RUNNER_NOSTALGEX_LIVE_COLLECTIONS_USER     user id (Jellyfin and Emby)
+///   TEST_RUNNER_NOSTALGEX_LIVE_COLLECTIONS_USER     user id
 ///
 /// Output lines start with `[LiveCollections]`. They carry library titles, so keep the
 /// log out of the repo.
@@ -26,8 +26,7 @@ final class LiveCollectionShowsHarness: XCTestCase {
         let user = env["NOSTALGEX_LIVE_COLLECTIONS_USER"] ?? ""
         switch kind {
         case "jellyfin": return JellyfinAPIService(serverURL: url, accessToken: token, userId: user)
-        case "emby": return EmbyAPIService(serverURL: url, accessToken: token, userId: user)
-        default: return PlexAPIService(serverURL: url, token: token)
+        default: throw XCTSkip("Unsupported live collections backend: \(kind)")
         }
     }
 

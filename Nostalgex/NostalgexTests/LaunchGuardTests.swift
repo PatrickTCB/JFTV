@@ -163,7 +163,7 @@ final class StartOverTests: XCTestCase {
     func testStartOverMidLoadSignsOutAndStopsTheLoad() {
         let store = MemoryStore()
         let state = AppState(credentialStore: store)
-        state.backendKind = .emby
+        state.backendKind = .jellyfin
         state.serverURL = "http://192.168.1.10:8096"
         state.token = "t"
         state.saveCredentials()

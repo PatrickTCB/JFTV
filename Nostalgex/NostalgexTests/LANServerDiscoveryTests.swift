@@ -6,8 +6,9 @@ import XCTest
 /// is listening on the test machine's network.
 final class LANServerDiscoveryTests: XCTestCase {
 
-    // Captured verbatim from an Emby 4.10.1.0 reply. Jellyfin adds EndpointAddress.
-    private let embyReply = #"{"Address":"http://192.168.1.10:8096","Id":"0a1b2c3d4e5f60718293a4b5c6d7e8f9","Name":"Attic-Server"}"#
+    // Captured verbatim from an Emby 4.10.1.0 reply; Jellyfin answers the same shape
+    // (it adds EndpointAddress), so it parses as a Jellyfin reply too.
+    private let minimalReply = #"{"Address":"http://192.168.1.10:8096","Id":"0a1b2c3d4e5f60718293a4b5c6d7e8f9","Name":"Attic-Server"}"#
     private let jellyfinReply = #"{"Address":"http://192.168.1.20:8096","Id":"3d1f0a9e8c7b4a5d9e2f1c0b8a7d6e5f","Name":"Living Room Jellyfin","EndpointAddress":null}"#
 
     func testParsesAJellyfinReply() {
@@ -18,9 +19,9 @@ final class LANServerDiscoveryTests: XCTestCase {
                                                 id: "3d1f0a9e8c7b4a5d9e2f1c0b8a7d6e5f"))
     }
 
-    func testParsesAnEmbyReply() {
-        let server = LANServerDiscovery.parse(reply: Data(embyReply.utf8), kind: .emby)
-        XCTAssertEqual(server, DiscoveredServer(kind: .emby,
+    func testParsesAMinimalReply() {
+        let server = LANServerDiscovery.parse(reply: Data(minimalReply.utf8), kind: .jellyfin)
+        XCTAssertEqual(server, DiscoveredServer(kind: .jellyfin,
                                                 name: "Attic-Server",
                                                 address: "http://192.168.1.10:8096",
                                                 id: "0a1b2c3d4e5f60718293a4b5c6d7e8f9"))
@@ -29,7 +30,7 @@ final class LANServerDiscoveryTests: XCTestCase {
     func testRejectsMalformedReplies() {
         let bad: [String] = [
             "",
-            "who is EmbyServer?",                              // our own probe echoed back
+            "who is EmbyServer?",                              // a probe echoed back
             "{not json",
             "[]",
             #"{"Id":"abc","Name":"No address"}"#,              // missing Address
@@ -39,27 +40,25 @@ final class LANServerDiscoveryTests: XCTestCase {
             #"{"Address":123,"Id":"abc"}"#,                     // wrong type
         ]
         for text in bad {
-            XCTAssertNil(LANServerDiscovery.parse(reply: Data(text.utf8), kind: .emby), "accepted: \(text)")
+            XCTAssertNil(LANServerDiscovery.parse(reply: Data(text.utf8), kind: .jellyfin), "accepted: \(text)")
         }
     }
 
     func testFallsBackToTheAddressWhenTheNameIsMissing() {
-        let server = LANServerDiscovery.parse(reply: Data(#"{"Address":"http://192.168.1.10:8096","Id":"abc"}"#.utf8), kind: .emby)
+        let server = LANServerDiscovery.parse(reply: Data(#"{"Address":"http://192.168.1.10:8096","Id":"abc"}"#.utf8), kind: .jellyfin)
         XCTAssertEqual(server?.name, "http://192.168.1.10:8096")
     }
 
     func testDedupesByIdKeepingTheFirstSeen() {
-        let a = DiscoveredServer(kind: .emby, name: "A", address: "http://192.168.1.10:8096", id: "same")
-        let aAgain = DiscoveredServer(kind: .emby, name: "A via other interface", address: "http://10.0.0.10:8096", id: "same")
-        let b = DiscoveredServer(kind: .emby, name: "B", address: "http://192.168.1.11:8096", id: "other")
+        let a = DiscoveredServer(kind: .jellyfin, name: "A", address: "http://192.168.1.10:8096", id: "same")
+        let aAgain = DiscoveredServer(kind: .jellyfin, name: "A via other interface", address: "http://10.0.0.10:8096", id: "same")
+        let b = DiscoveredServer(kind: .jellyfin, name: "B", address: "http://192.168.1.11:8096", id: "other")
         XCTAssertEqual(LANServerDiscovery.dedupe([a, aAgain, b, a]), [a, b])
         XCTAssertEqual(LANServerDiscovery.dedupe([]), [])
     }
 
-    func testEachKindHasItsOwnProbeAndPlexHasNone() {
+    func testJellyfinHasItsOwnProbe() {
         XCTAssertEqual(LANServerDiscovery.probe(for: .jellyfin), "who is JellyfinServer?")
-        XCTAssertEqual(LANServerDiscovery.probe(for: .emby), "who is EmbyServer?")
-        XCTAssertNil(LANServerDiscovery.probe(for: .plex))
     }
 
     /// The real Emby ignored 255.255.255.255 on a /22 and answered the directed

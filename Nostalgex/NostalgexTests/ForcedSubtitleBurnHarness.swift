@@ -62,9 +62,9 @@ final class ForcedSubtitleBurnHarness: XCTestCase {
             throw XCTSkip("No lab server configured (NOSTALGEX_FS_URL/TOKEN/USER)")
         }
         token = tok
-        let backend = env["NOSTALGEX_FS_BACKEND"] ?? "emby"
+        let backend = env["NOSTALGEX_FS_BACKEND"] ?? "jellyfin"
         let app = AppState(credentialStore: MemStore())
-        app.backendKind = backend == "jellyfin" ? .jellyfin : .emby
+        app.backendKind = .jellyfin
         app.serverURL = url
         app.token = tok
         app.jellyfinUserId = user

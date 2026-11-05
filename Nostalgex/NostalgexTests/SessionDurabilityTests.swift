@@ -77,11 +77,16 @@ final class SessionDurabilityTests: XCTestCase {
     func testUnauthorizedMessagesKeepTheSessionAndPointAtDisconnect() {
         for validity in [TokenValidity.valid, .invalid, .unknown] {
             let msg = AppState.unauthorizedLoadMessage(tokenValidity: validity, backend: .jellyfin)
-            XCTAssertFalse(msg.lowercased().contains("sign in again"), "\(validity): must not ask for a fresh sign-in")
+            XCTAssertFalse(msg.lowercased().contains("session expired"), "\(validity): a 401 must not declare the sign-in dead")
+            XCTAssertFalse(msg.lowercased().contains("signed out"), "\(validity): the app never signs out on a 401")
         }
-        let invalid = AppState.unauthorizedLoadMessage(tokenValidity: .invalid, backend: .jellyfin)
-        XCTAssertTrue(invalid.contains("kept"))
-        XCTAssertTrue(invalid.contains("Disconnect"))
+        // Both failure wordings say the saved sign-in survived, and name Disconnect as
+        // the viewer's own way to start fresh (only after that may they sign in again).
+        for validity in [TokenValidity.invalid, .unknown] {
+            let msg = AppState.unauthorizedLoadMessage(tokenValidity: validity, backend: .jellyfin)
+            XCTAssertTrue(msg.contains("kept"), "\(validity): \(msg)")
+            XCTAssertTrue(msg.contains("Disconnect"), "\(validity): \(msg)")
+        }
     }
 
     // MARK: - Error copy names the server the user actually connected to

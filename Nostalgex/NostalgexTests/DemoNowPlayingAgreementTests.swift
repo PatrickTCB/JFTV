@@ -90,7 +90,7 @@ final class DemoNowPlayingAgreementTests: XCTestCase {
             let tunedAt = clock
             let guideAtTune = guide(at: clock)
             let liveAtTune = try XCTUnwrap(guideAtTune[ch.id]?.nowPlaying)
-            state.tuneChannelFromUser(ch, method: .guide, precomputedSchedule: guideAtTune[ch.id])
+            state.selectChannel(ch, precomputedSchedule: guideAtTune[ch.id])
 
             let elapsed = Int(clock.timeIntervalSince(liveAtTune.startTime))
             XCTAssertEqual(state.seekOffset, elapsed, "CH \(ch.number): seekOffset is the schedule's elapsed time")
@@ -156,7 +156,7 @@ final class DemoNowPlayingAgreementTests: XCTestCase {
         resetManifests()
         let ch = try XCTUnwrap(state.channels.first)
         clock = try deepInBlock(ch, from: Self.base)
-        state.tuneChannelFromUser(ch, method: .guide, precomputedSchedule: guide(at: clock)[ch.id])
+        state.selectChannel(ch, precomputedSchedule: guide(at: clock)[ch.id])
         let live = try XCTUnwrap(raw(ch, clock)?.nowPlaying)
         let upNext = try XCTUnwrap(raw(ch, clock)?.upNext)
         XCTAssertNotEqual(upNext.item.id, live.item.id)
@@ -191,7 +191,7 @@ final class DemoNowPlayingAgreementTests: XCTestCase {
 
         for ch in lineup {
             clock = try deepInBlock(ch, from: Self.base)
-            state.tuneChannelFromUser(ch, method: .guide, precomputedSchedule: guide(at: clock)[ch.id])
+            state.selectChannel(ch, precomputedSchedule: guide(at: clock)[ch.id])
             let schedule = try XCTUnwrap(raw(ch, clock))
             let live = try XCTUnwrap(schedule.nowPlaying)
             XCTAssertEqual(state.currentItem?.id, live.item.id)

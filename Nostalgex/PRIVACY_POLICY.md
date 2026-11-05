@@ -10,9 +10,8 @@ host, supply, or stream any media. Everything you watch comes off your own Jelly
 
 - No accounts. Nothing is sold or rented to anyone.
 - Your server address and login token stay on your Apple TV.
-- The app can send a small, fixed list of anonymous usage events so it is possible to tell whether
-  things are working. No names, no library contents, no titles. (See the analytics note below; a
-  personal fork should set its own TelemetryDeck id or remove it.)
+- **No analytics, no telemetry, no crash reporting, no ads, no payments.** The app sends nothing
+  to anyone except your own Jellyfin server and the optional metadata services below.
 - Nothing collected follows you into other companies' apps or across the web.
 
 ## What the app connects to
@@ -40,16 +39,9 @@ host, supply, or stream any media. Everything you watch comes off your own Jelly
 
 ## Analytics
 
-The app can send anonymous usage events to [TelemetryDeck](https://telemetrydeck.com), a
-privacy-focused analytics service, to tell whether the app is working: installs and connects, whether
-playback starts and stays up, and which settings are used. Events carry a `backend` value
-(`jellyfin` or `demo`) and a `demo` flag. No event carries your name, library contents, titles,
-server address, or token. Each event carries an anonymous device identifier derived from Apple's
-vendor identifier, hashed on device before it leaves and again on arrival.
-
-The TelemetryDeck app id lives in `Nostalgex/Info.plist` (`TelemetryDeckAppID`). **A personal fork
-should replace it with its own or delete the key**, which turns analytics off. As shipped from
-upstream it points at the original author's dashboard.
+There are none. This build contains no analytics, telemetry, crash-reporting or advertising SDK,
+and it sends no usage events anywhere. Diagnostic messages are written only to the device's own
+local log (Apple's unified logging), which never leaves the Apple TV.
 
 ## What the app never sends
 
@@ -96,7 +88,6 @@ for advertising or ad measurement.
 
 - Deleting the app removes everything it stored on your Apple TV, including your server token.
 - Playback reporting is off unless you turn it on, and you can turn it back off at any time.
-- Analytics are off if the TelemetryDeck id is removed.
 
 ## Children's privacy
 

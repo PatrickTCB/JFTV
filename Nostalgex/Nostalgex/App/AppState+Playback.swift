@@ -230,8 +230,7 @@ extension AppState {
     /// owns the current player; a channel change or replacement makes a late reply cleanup-only.
     private func beginServerFallback(for item: PlexMediaItem, position: Int, generation: Int,
                                      attempt: Int, playerItem: AVPlayerItem,
-                                     informationReason: PlaybackInformation.FallbackReason,
-                                     reportWatchdogFailure: Bool = false) {
+                                     informationReason: PlaybackInformation.FallbackReason) {
         guard claimPlaybackRecovery(for: playerItem, generation: generation, attempt: attempt) else { return }
         beginPlaybackInformationAttempt(generation: generation, attempt: attempt,
                                         isDirectPlay: false, reason: informationReason)
@@ -252,7 +251,7 @@ extension AppState {
                 // No server stream either. Skips without a card, as it always has, but is
                 // reported and counted like every other failure so a channel of these stops.
                 // A starved stream used to skip here without any report; `stalled` is its code.
-                if self.recordFailedItem(reportWatchdogFailure ? .watchdogSkip : .stalled) {
+                if self.recordFailedItem() {
                     self.stopChannelAfterRepeatedFailures(last: .transcodingUnavailable(server: self.backendKind.displayName))
                 } else {
                     self.advanceToNextItem()
@@ -278,10 +277,6 @@ extension AppState {
         sleepTimer?.invalidate()
         sleepGraceTimer?.invalidate()
         sleepGracePromptActive = false
-        // Log both arm and cancel through the same generic settings channel; the
-        // value (`0` for OFF, minutes for anything else) reads on the dashboard
-        // without needing a second event.
-        Analytics.track(.settingChanged(key: "sleep_timer_minutes", value: String(max(minutes, 0))))
         guard minutes > 0 else {
             sleepTimerEndDate = nil
             sleepTimerMinutes = nil
@@ -329,7 +324,6 @@ extension AppState {
     /// Lightweight stop: pause the stream, drop the transcode, return to the guide.
     /// Deliberately NOT `disconnect()` — that would drop server credentials.
     private func expireSleepTimer() {
-        emitPlaybackStoppedForActiveSession()
         player?.pause()
         isVideoPlaying = false
         stopActiveTranscodeIfNeeded()
@@ -356,7 +350,7 @@ extension AppState {
     /// reading, and this is the only place the reason is ever shown.
     private func showErrorThenSkip(_ failure: PlaybackFailure, generation: Int, title: String? = nil,
                                    detail: String? = nil) {
-        let stopsChannel = recordFailedItem(failure.analyticsCode)
+        let stopsChannel = recordFailedItem()
         playbackState = .error(failure)
         noteRatingNudgePlaybackFailure()
         PlaybackDiagnostics.record(
@@ -379,11 +373,10 @@ extension AppState {
         }
     }
 
-    /// The one place a programme that will not play is reported and counted: one
-    /// `playback.error`, and one more failure on the channel's `ChannelFailureRun`.
-    /// Returns true when the run has reached its limit and the channel should stop.
-    private func recordFailedItem(_ code: AnalyticsPlaybackErrorCode) -> Bool {
-        emitPlaybackError(code)
+    /// The one place a programme that will not play is counted: one more failure on the
+    /// channel's `ChannelFailureRun`. Returns true when the run has reached its limit and
+    /// the channel should stop.
+    private func recordFailedItem() -> Bool {
         guard let channel = currentChannel else { return false }
         return channelFailureRun.recordFailure(onChannel: channel.id)
     }
@@ -402,7 +395,6 @@ extension AppState {
         // so nothing will flip this to false on its own.
         isVideoPlaying = false
         stopActiveTranscodeIfNeeded()
-        emitPlaybackStoppedForActiveSession()
         let outgoing = playbackTracker
         playbackTracker = nil
         outgoing?.stop()
@@ -528,33 +520,6 @@ extension AppState {
         return PlaybackFailure.classify(backend: backendKind, evidence: evidence)
     }
 
-    /// Sends `playback.error`. Called from `recordFailedItem`, and from `autoSkipOnError`
-    /// for a failure the viewer tuned away from before its card showed (`channel` is then
-    /// the one that failed, not the one now on). No-op without a channel.
-    private func emitPlaybackError(_ code: AnalyticsPlaybackErrorCode, channel: Channel? = nil) {
-        guard let channel = channel ?? currentChannel else { return }
-        Analytics.track(.playbackError(
-            channelNumber: channel.number,
-            backend: analyticsBackend,
-            code: code
-        ))
-    }
-
-    /// Fire `playback.ready` once per session and record delivery mode for the later
-    /// `playback.stopped` signal. Every readyToPlay path in loadCurrentItem/retry/
-    /// fallback funnels through here.
-    fileprivate func reportPlaybackReadyIfNeeded(delivery: AnalyticsPlaybackDelivery) {
-        currentPlaybackDelivery = delivery
-        guard !playbackReadyReported, let channel = currentChannel else { return }
-        playbackReadyReported = true
-        Analytics.track(.playbackReady(
-            channelNumber: channel.number,
-            backend: analyticsBackend,
-            delivery: delivery,
-            channel: AnalyticsChannelDescriptor.describe(channel)
-        ))
-    }
-
     func loadCurrentItem(preservingTracker: Bool = false) {
         // Clear the previous item's audio-track list so a new/uni-track program never
         // shows stale tracks; applyAudioTrackSelection republishes when the group loads.
@@ -566,16 +531,6 @@ extension AppState {
 
         if !preservingTracker {
             currentPartBaseSeconds = 0
-            // Flush accumulated watch time for the outgoing session before creating a new
-            // tracker. This is where per-item watch time analytics is emitted: the previous
-            // channel+delivery is still current at this point.
-            emitPlaybackStoppedForActiveSession()
-
-            // Session state resets — the new item gets a fresh delivery and a fresh ready
-            // signal. Both are set inside the readyToPlay branches below.
-            currentPlaybackDelivery = nil
-            playbackReadyReported = false
-
             // Stop the previous tracker before anything else so its scrobble fires cleanly.
             let outgoing = playbackTracker
             playbackTracker = nil
@@ -779,13 +734,8 @@ extension AppState {
                     switch status {
                     case .readyToPlay:
                         print("[Plex90] gen=\(generation) | READY: \"\(title)\"")
-                        // First readyToPlay in this session wins: record delivery and
-                        // emit the analytics ready signal. Retry / transcode-fallback
-                        // paths re-enter readyToPlay for the same channel; they'd
-                        // otherwise double-count.
                         self.markPlaybackInformationReady(for: playerItem, generation: generation,
                                                           attempt: attempt, attemptID: informationAttempt)
-                        self.reportPlaybackReadyIfNeeded(delivery: isDirectPlay ? .directPlay : .transcode)
                         if let seekTo, seekTo > 0 {
                             print("[Plex90] gen=\(generation) | Seeking to \(seekTo)s")
                             let target = CMTime(seconds: Double(seekTo), preferredTimescale: 600)
@@ -897,8 +847,6 @@ extension AppState {
                         print("[Plex90] gen=\(generation) | RETRY READY: \"\(title)\"")
                         self.markPlaybackInformationReady(for: playerItem, generation: generation,
                                                           attempt: attempt, attemptID: informationAttempt)
-                        // Retry re-uses whatever delivery the session already had.
-                        self.reportPlaybackReadyIfNeeded(delivery: self.currentPlaybackDelivery ?? .transcode)
                         if let seekTo, seekTo > 0 {
                             let target = CMTime(seconds: Double(seekTo), preferredTimescale: 600)
                             self.player?.seek(to: target) { _ in
@@ -958,13 +906,6 @@ extension AppState {
             reason: informationReason, recoveryRequest: informationRequest)
         let title = currentItem?.title ?? "Unknown"
         print("[Plex90] gen=\(generation) | TRANSCODE FALLBACK: \"\(title)\"")
-        // Analytics: direct play failed and we're moving to the server-side transcoder.
-        if let channel = currentChannel {
-            Analytics.track(.playbackTranscodeFallback(
-                channelNumber: channel.number,
-                backend: analyticsBackend
-            ))
-        }
         cancellables.removeAll()
         player?.replaceCurrentItem(with: nil)
 
@@ -997,8 +938,6 @@ extension AppState {
                         print("[Plex90] gen=\(generation) | TRANSCODE READY: \"\(title)\"")
                         self.markPlaybackInformationReady(for: playerItem, generation: generation,
                                                           attempt: attempt, attemptID: informationAttempt)
-                        // Fallback path is by definition a transcode delivery.
-                        self.reportPlaybackReadyIfNeeded(delivery: .transcode)
                         if let seekTo, seekTo > 0 {
                             let target = CMTime(seconds: Double(seekTo), preferredTimescale: 600)
                             self.player?.seek(to: target) { _ in
@@ -1107,12 +1046,9 @@ extension AppState {
             // The server stream is the answer, and it gets its own capped retry after.
             print("[Plex90] gen=\(generation) | WATCHDOG: \(deadline)s deadline, direct play gave no picture (\(detail)) — switching to the server stream")
             PlaybackDiagnostics.record(outcome: "direct play → server stream after \(deadline)s", title: item.title, detail: detail)
-            if let channel = self.currentChannel {
-                Analytics.track(.playbackTranscodeFallback(channelNumber: channel.number, backend: self.analyticsBackend))
-            }
             self.beginServerFallback(for: item, position: self.seekOffset, generation: generation,
                                      attempt: attempt, playerItem: playerItem,
-                                     informationReason: .startupNoPicture, reportWatchdogFailure: true)
+                                     informationReason: .startupNoPicture)
             return
         }
         guard self.claimPlaybackRecovery(for: playerItem, generation: generation, attempt: attempt) else { return }
@@ -1288,7 +1224,6 @@ extension AppState {
     private func autoSkipOnError(generation: Int, playerItem: AVPlayerItem? = nil) {
         guard loadGeneration == generation else { return }
         let attempt = playbackAttemptGeneration
-        let failedChannel = currentChannel
         let title = currentItem?.title ?? "Unknown"
         let reason = playerItem?.error?.localizedDescription ?? "no error on the item"
         print("[Plex90] gen=\(generation) | AUTO-SKIP: \"\(title)\" failed, skipping to next")
@@ -1299,16 +1234,13 @@ extension AppState {
         let hadPicture = (playerItem?.currentTime().seconds ?? 0) > 0.5
         playbackResolutionTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            // Tuned away before the card: no card and no count, but still this failure's
-            // one report, for the channel it happened on.
+            // Tuned away before the card: no card and no count.
             guard self.isCurrentPlaybackAttempt(generation: generation, attempt: attempt, playerItem: playerItem) else {
-                self.emitPlaybackError(.playerFailed, channel: failedChannel)
                 return
             }
             let failure = await self.classifyFailure(for: playerItem, item: self.currentItem,
                                                      hadPicture: hadPicture)
             guard !Task.isCancelled, self.isCurrentPlaybackAttempt(generation: generation, attempt: attempt, playerItem: playerItem) else {
-                self.emitPlaybackError(failure.analyticsCode, channel: failedChannel)
                 return
             }
             self.showErrorThenSkip(failure, generation: generation, title: title,

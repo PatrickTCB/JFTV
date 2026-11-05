@@ -214,18 +214,6 @@ enum PlaybackFailure: Equatable, Sendable {
         }
     }
 
-    /// The analytics code that goes with this failure, so the wire signal and the words on
-    /// screen can never drift apart.
-    var analyticsCode: AnalyticsPlaybackErrorCode {
-        switch self {
-        case .noPlayableSource:       return .noPlayableSource
-        case .transcodingUnavailable: return .transcodingUnavailable
-        case .serverTooSlow:          return .watchdogSkip
-        case let .channelStopped(last): return last.analyticsCode
-        default:                      return .playerFailed
-        }
-    }
-
     /// Whether the fault lies with the server. Drives nothing today beyond wording, but it
     /// is the question every support thread opens with.
     var isServerSide: Bool {

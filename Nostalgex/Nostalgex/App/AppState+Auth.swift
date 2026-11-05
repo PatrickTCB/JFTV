@@ -113,10 +113,6 @@ extension AppState {
             )
             if let diagnostic = signInLossDiagnostic {
                 print("[Plex90] AUTH: \(diagnostic)")
-                // Fire once per launch — hydrateCredentialsWithRetry is a launch path.
-                // Report the primary token's OSStatus (short digits, not PII).
-                let keychainStatus = KeychainService.lastLoadStatuses()["plex_token"].map(String.init) ?? "?"
-                Analytics.track(.credentialsSignInLost(code: keychainStatus))
             }
         }
     }
@@ -140,7 +136,6 @@ extension AppState {
         AppDefaults.standard.set(true, forKey: Self.hasHeldSignInMarkerKey)
         if !allPersisted {
             print("[Plex90] AUTH: credentials could not be persisted — sign-in will be lost on relaunch")
-            Analytics.track(.credentialsPersistFailed)
         }
         persistSelectedServers()
     }
@@ -250,11 +245,6 @@ extension AppState {
         let excluded = pendingLibrarySections.filter { !includedIDs.contains($0.id) }
         deselectedLibrarySectionKeys = Set(excluded.map(\.id))
         LibrarySectionSelectionStore.save(deselectedLibrarySectionKeys)
-        Analytics.track(.connectLibrarySelectionConfirmed(
-            backend: analyticsBackend,
-            sectionCount: pendingLibrarySections.count,
-            excludedCount: excluded.count
-        ))
         needsLibrarySelection = false
         pendingLibrarySections = []
         Task { await loadLibrary() }
@@ -269,9 +259,6 @@ extension AppState {
         } else {
             setSelectedServers(selectedServers + [server])
         }
-        // Server identity is deliberately absent — a `true`/`false` toggle is enough
-        // to see how often the row is used; the machine identifier is not analytics data.
-        Analytics.track(.settingChanged(key: "server", value: wasIncluded ? "false" : "true"))
         LibrarySnapshotStore.clear()
         Task { await loadLibrary() }
     }
@@ -325,7 +312,6 @@ extension AppState {
             deselectedLibrarySectionKeys.remove(section.id)
         }
         LibrarySectionSelectionStore.save(deselectedLibrarySectionKeys)
-        Analytics.track(.settingChanged(key: "library_section", value: wasOn ? "false" : "true"))
         LibrarySnapshotStore.clear()
         Task { await loadLibrary() }
     }
@@ -418,9 +404,6 @@ extension AppState {
         justAuthenticated = false
 
         isDemoMode = true
-        // Every subsequent signal on this device is tagged demo=true so the dashboard
-        // can filter demo-mode exploration out of the real usage stats.
-        Analytics.setDemoMode(true)
         serverName = "Demo"
         isConnected = true
         isLoading = false
@@ -595,14 +578,6 @@ extension AppState {
     }
 
     func cancelPINAuth() {
-        // Report cancel BEFORE clearing currentAuthAttempt so the signal names the
-        // sign-in the user backed out of. `wasInFlight` gate avoids sending a cancel
-        // for `startPINAuth()` -> immediate-failure paths that already fired failed.
-        let wasInFlight = isAuthInProgress
-        if wasInFlight, let attempt = currentAuthAttempt {
-            Analytics.track(.connectCancelled(backend: attempt.backend, method: attempt.method))
-        }
-        currentAuthAttempt = nil
         pinPollTask?.cancel()
         pinPollTask = nil
         isAuthInProgress = false
@@ -614,20 +589,12 @@ extension AppState {
     /// Use when the user wants to pick up library changes without signing out.
     func rescanLibrary() async {
         guard hasCredentials else { return }
-        Analytics.track(.settingChanged(key: "rescan", value: "tapped"))
         LibrarySnapshotStore.clear()
         DailyManifestStore.clearAll(credentialFingerprint: scheduleCredentialFingerprint)
         await loadLibrary()
     }
 
     func disconnect() {
-        Analytics.track(.settingChanged(key: "disconnect", value: "tapped"))
-        // Fold accumulated watch time into one final playback.stopped before the
-        // tracker is torn down. Otherwise every disconnect drops the last session's
-        // seconds on the floor.
-        emitPlaybackStoppedForActiveSession()
-        currentPlaybackDelivery = nil
-        playbackReadyReported = false
         let outgoing = playbackTracker
         playbackTracker = nil
         outgoing?.stop()
@@ -666,8 +633,6 @@ extension AppState {
         justAuthenticated = false
         lastFailureDiagnostic = nil
         isDemoMode = false
-        // Real backend from here on out; keep the analytics context in sync.
-        Analytics.setDemoMode(false)
     }
 
     // MARK: - Jellyfin Auth
@@ -682,8 +647,6 @@ extension AppState {
         pinPollTask?.cancel()
         authError = nil
         isAuthInProgress = true
-        currentAuthAttempt = (.jellyfin, .password)
-        Analytics.track(.connectStarted(backend: .jellyfin, method: .password))
         pinPollTask = Task {
             do {
                 let (url, result) = try await Self.tryServerCandidates(rawURL) {
@@ -694,16 +657,12 @@ extension AppState {
             } catch let api as MediaServerKit.APIError {
                 guard !Task.isCancelled else { return }
                 isAuthInProgress = false
-                currentAuthAttempt = nil
-                Analytics.track(.connectFailed(backend: .jellyfin, reason: "jellyfin_auth_failed"))
                 authError = api == .unauthorized
                     ? "Incorrect username or password."
                     : "Could not reach the Jellyfin server. Check the address."
             } catch {
                 guard !Task.isCancelled else { return }
                 isAuthInProgress = false
-                currentAuthAttempt = nil
-                Analytics.track(.connectFailed(backend: .jellyfin, reason: "jellyfin_unreachable"))
                 authError = Self.serverUnreachableMessage(error, backend: "Jellyfin")
             }
         }
@@ -719,8 +678,6 @@ extension AppState {
         authError = nil
         isAuthInProgress = true
         jellyfinQuickConnectCode = ""
-        currentAuthAttempt = (.jellyfin, .quickConnect)
-        Analytics.track(.connectStarted(backend: .jellyfin, method: .quickConnect))
         pinPollTask = Task {
             do {
                 let (url, initiated) = try await Self.tryServerCandidates(rawURL) {
@@ -735,10 +692,8 @@ extension AppState {
                     guard !Task.isCancelled else { break }
                     attempts += 1
                     if attempts > 150 {
-                        Analytics.track(.connectCodeExpired(backend: .jellyfin, method: .quickConnect))
                         authError = Self.quickConnectCodeExpiredMessage
                         isAuthInProgress = false
-                        currentAuthAttempt = nil
                         jellyfinQuickConnectCode = ""
                         break
                     }
@@ -753,9 +708,7 @@ extension AppState {
             } catch {
                 guard !Task.isCancelled else { return }
                 isAuthInProgress = false
-                currentAuthAttempt = nil
                 jellyfinQuickConnectCode = ""
-                Analytics.track(.connectFailed(backend: .jellyfin, reason: "jellyfin_quick_connect_failed"))
                 authError = Self.quickConnectFailureMessage(error)
             }
         }
@@ -775,11 +728,9 @@ extension AppState {
         availableServers = [ref]
 
         isAuthInProgress = false
-        currentAuthAttempt = nil
         jellyfinQuickConnectCode = ""
         justAuthenticated = true
         lastFailureDiagnostic = nil
-        Analytics.track(.connectCompleted(backend: .jellyfin, serverCount: 1))
 
         setSelectedServers([ref])   // persists selectedServers + syncs primary fields
         saveCredentials()           // persists backendKind, token, serverURL, jellyfinUserId

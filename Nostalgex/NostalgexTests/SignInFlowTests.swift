@@ -1,7 +1,7 @@
 import XCTest
 @testable import Nostalgex
 
-/// The decisions behind the Jellyfin and Emby connect screens: what discovery leads to,
+/// The decisions behind the Jellyfin connect screen: what discovery leads to,
 /// which way in a server gets first, and what the address check reads before anyone types.
 final class SignInFlowTests: XCTestCase {
 
@@ -34,10 +34,10 @@ final class SignInFlowTests: XCTestCase {
     }
 
     func testUITestDiscoveryStandInOnlyWhenAsked() {
-        XCTAssertNil(SignInFlow.uiTestDiscoveryFixture(kind: .emby, arguments: ["app"]))
-        XCTAssertNil(SignInFlow.uiTestDiscoveryFixture(kind: .emby, arguments: ["app", "-uiTestDiscovery"]))
-        XCTAssertEqual(SignInFlow.uiTestDiscoveryFixture(kind: .emby, arguments: ["app", "-uiTestDiscovery", "none"]), [])
-        XCTAssertEqual(SignInFlow.uiTestDiscoveryFixture(kind: .emby, arguments: ["app", "-uiTestDiscovery none"]), [])
+        XCTAssertNil(SignInFlow.uiTestDiscoveryFixture(kind: .jellyfin, arguments: ["app"]))
+        XCTAssertNil(SignInFlow.uiTestDiscoveryFixture(kind: .jellyfin, arguments: ["app", "-uiTestDiscovery"]))
+        XCTAssertEqual(SignInFlow.uiTestDiscoveryFixture(kind: .jellyfin, arguments: ["app", "-uiTestDiscovery", "none"]), [])
+        XCTAssertEqual(SignInFlow.uiTestDiscoveryFixture(kind: .jellyfin, arguments: ["app", "-uiTestDiscovery none"]), [])
         let several = SignInFlow.uiTestDiscoveryFixture(kind: .jellyfin, arguments: ["-uiTestDiscovery", "several"]) ?? []
         XCTAssertEqual(several.count, 2)
         XCTAssertTrue(several.allSatisfy { $0.kind == .jellyfin })
@@ -53,13 +53,6 @@ final class SignInFlowTests: XCTestCase {
     func testPasswordWhenJellyfinQuickConnectIsOffOrUnknown() {
         XCTAssertEqual(SignInFlow.preferredMethod(kind: .jellyfin, quickConnectEnabled: false), .password)
         XCTAssertEqual(SignInFlow.preferredMethod(kind: .jellyfin, quickConnectEnabled: nil), .password)
-    }
-
-    func testEmbyIsAlwaysPassword() {
-        for answer in [true, false, nil] as [Bool?] {
-            XCTAssertEqual(SignInFlow.preferredMethod(kind: .emby, quickConnectEnabled: answer), .password)
-            XCTAssertFalse(SignInFlow.offersQuickConnect(kind: .emby, quickConnectEnabled: answer))
-        }
     }
 
     /// Quick Connect stays on offer unless the server said it is off: an older Jellyfin
@@ -80,14 +73,14 @@ final class SignInFlowTests: XCTestCase {
         XCTAssertNil(SignInFlow.parseQuickConnectEnabled(Data("<html></html>".utf8), statusCode: 200))
     }
 
-    /// Captured from Jellyfin 12.2.0 and Emby 4.10.1.0 (Ids shortened).
+    /// Captured from Jellyfin 12.2.0 (Ids shortened). A reply that does not name
+    /// Jellyfin as its product is not a server the app can use.
     func testPublicInfoNamesTheKind() {
         let jellyfin = #"{"LocalAddress":"http://127.0.0.1:8096","ServerName":"Living Room","Version":"12.2.0","ProductName":"Jellyfin Server","OperatingSystem":"","Id":"d1d2d3d4","StartupWizardCompleted":true}"#
-        let emby = #"{"LocalAddresses":[],"RemoteAddresses":[],"ServerName":"Attic-Server","Version":"4.10.1.0","Id":"e5e6e7e8"}"#
+        let notJellyfin = #"{"LocalAddresses":[],"RemoteAddresses":[],"ServerName":"Attic-Server","Version":"4.10.1.0","Id":"e5e6e7e8"}"#
         XCTAssertEqual(SignInFlow.parsePublicInfo(Data(jellyfin.utf8)),
                        .init(id: "d1d2d3d4", name: "Living Room", kind: .jellyfin))
-        XCTAssertEqual(SignInFlow.parsePublicInfo(Data(emby.utf8)),
-                       .init(id: "e5e6e7e8", name: "Attic-Server", kind: .emby))
+        XCTAssertNil(SignInFlow.parsePublicInfo(Data(notJellyfin.utf8)), "a product that isn't Jellyfin is not a server we can use")
         XCTAssertNil(SignInFlow.parsePublicInfo(Data(#"{"ServerName":"router"}"#.utf8)), "no Id is not a server")
         XCTAssertNil(SignInFlow.parsePublicInfo(Data("<!doctype html>".utf8)))
     }
@@ -121,7 +114,7 @@ final class SignInFlowTests: XCTestCase {
     }
 
     private let jellyfinInfo = #"{"ServerName":"Living Room","ProductName":"Jellyfin Server","Id":"jf1"}"#
-    private let embyInfo = #"{"ServerName":"Den","Id":"em1"}"#
+    private let denInfo = #"{"ServerName":"Den","ProductName":"Jellyfin Server","Id":"jf2"}"#
 
     func testABareAddressFindsJellyfinOn8096AndOpensOnQuickConnect() async throws {
         let fake = FakeServer()
@@ -147,25 +140,22 @@ final class SignInFlowTests: XCTestCase {
         XCTAssertFalse(checked.offersQuickConnect)
     }
 
-    func testEmbyIsNeverAskedAboutQuickConnectAndShowsItsUsers() async throws {
+    func testUsersAreListedWhenTheServerOffersThem() async throws {
         let fake = FakeServer()
         fake.routes = [
-            "http://192.168.1.20:8096/System/Info/Public": (200, embyInfo),
+            "http://192.168.1.20:8096/System/Info/Public": (200, denInfo),
             "http://192.168.1.20:8096/Users/Public": (200, #"[{"Name":"dad","Id":"d","HasPassword":false}]"#),
         ]
         let checked = try await SignInFlow.check(address: "http://192.168.1.20:8096", send: fake.send)
-        XCTAssertEqual(checked.kind, .emby)
-        XCTAssertNil(checked.quickConnectEnabled)
+        XCTAssertEqual(checked.kind, .jellyfin)
         XCTAssertEqual(checked.users, [.init(id: "d", name: "dad", hasPassword: false)])
-        XCTAssertEqual(checked.preferredMethod, .password)
-        XCTAssertFalse(fake.asked.contains { $0.contains("QuickConnect") }, "asked Emby about Quick Connect: \(fake.asked)")
     }
 
     /// Nothing on 8096: the portless form is tried next, as sign-in does.
     func testNothingOn8096TriesTheAddressAsTyped() async throws {
         let fake = FakeServer()
         fake.refused = ["http://10.0.0.5:8096"]
-        fake.routes = ["http://10.0.0.5/System/Info/Public": (200, embyInfo)]
+        fake.routes = ["http://10.0.0.5/System/Info/Public": (200, denInfo)]
         let checked = try await SignInFlow.check(address: "10.0.0.5", send: fake.send)
         XCTAssertEqual(checked.url, "http://10.0.0.5")
     }
@@ -190,12 +180,12 @@ final class SignInFlowTests: XCTestCase {
             XCTFail("expected an error")
         } catch {
             XCTAssertEqual((error as? URLError)?.code, .cannotConnectToHost)
-            XCTAssertTrue(AppState.serverUnreachableMessage(error, backend: "Emby").contains("Nothing answered"))
+            XCTAssertTrue(AppState.serverUnreachableMessage(error, backend: "Jellyfin").contains("Nothing answered"))
         }
     }
 
-    /// The viewer pressed EMBY but typed a Jellyfin address: the server's own answer wins,
-    /// so the right sign-in (and Quick Connect) runs.
+    /// The server's own answer decides the sign-in that runs, whatever the viewer
+    /// pressed before: a Jellyfin answer opens on Quick Connect when it is on.
     func testTheServerSaysWhichKindItIs() async throws {
         let fake = FakeServer()
         fake.routes = [

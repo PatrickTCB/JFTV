@@ -31,16 +31,15 @@ streams from your Jellyfin server.
    password, or Quick Connect), pick which libraries to scan, then flip channels with the Siri
    Remote.
 
-No API keys are required. Two optional extras are off unless you turn them on:
+No API keys are required. One optional extra is off unless you turn it on:
 
 | What | How to enable | What it adds |
 |---|---|---|
 | TMDB / Supabase metadata enrichment | Copy `Nostalgex/Secrets.example.xcconfig` to `Nostalgex/Secrets.xcconfig` and fill in `SUPABASE_URL` and `SUPABASE_ANON_KEY`. For a direct TMDB connection set `TMDB_API_KEY` as an environment variable in the Xcode scheme (read in `Services/TMDBConfig.swift`). | Keyword and collection data for finer channel rules. Without it, the enrichment-based channels stay empty. |
-| TelemetryDeck analytics | Set `TelemetryDeckAppID` in `Nostalgex/Info.plist` to your own app id (delete the key to turn it off). | Anonymous launch and playback counts. |
 
-> **Note:** `Nostalgex/Info.plist` still carries the upstream author's `TelemetryDeckAppID`.
-> Replace it with your own or delete the key so a personal fork does not report to someone
-> else's dashboard.
+The app has **no analytics, no telemetry and no payments** of any kind. Nothing leaves your
+network except requests to your own Jellyfin server and, if you enable the optional enrichment
+above, the public TMDB/IMDb ids it looks up.
 
 ## Tests
 

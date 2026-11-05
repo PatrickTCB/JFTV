@@ -101,12 +101,6 @@ extension AppState {
         if tracksLoad { LaunchGuard.loadStarted() }
         defer { if tracksLoad { LaunchGuard.loadEnded() } }
         InstallDiagnostics.note("loadLibrary: background=\(background) channels=\(self.channels.count) servers=\(self.selectedServers.count) lastLoadAge=\(Int(Date().timeIntervalSince1970) - self.lastLoadAtUnix)s")
-        // Wall-clock start for the load duration on library.load.completed. Placed
-        // before the UI-test stub bailout on purpose: a stubbed load is still a load,
-        // and duration=0ms is a valid answer for it.
-        let loadStartedAt = Date()
-        Analytics.track(.libraryLoadStarted(background: background && !channels.isEmpty, firstLoad: isFirstLibraryLoad))
-
         if !isUITestStubLibrarySuccess {
             if !background { isLoading = true; loadingMessage = "LOADING YOUR LIBRARY..." }
         }
@@ -318,18 +312,6 @@ extension AppState {
                 throw lastError ?? MediaServerKit.APIError.noReachableServer
             }
 
-            if scanWasAbandoned {
-                // Distinguish "user tapped stop waiting" from "watchdog gave up" so the
-                // dashboard can tell frustration from unreliability.
-                let userInitiated = (lastError as? LibraryLoadStalled)?.userInitiated == true
-                    || (lastError as? LibraryScanInterrupted) != nil
-                Analytics.track(.libraryLoadAbandoned(
-                    background: isBackground,
-                    itemsFound: merged.count,
-                    userInitiated: userInitiated
-                ))
-            }
-
             // A background refresh that had to be abandoned is thrown away rather than
             // applied. Its partial item list is a subset of what the user is already
             // watching, so adopting it would shrink a working guide mid-program. Marking
@@ -470,18 +452,6 @@ extension AppState {
             saveLibrarySnapshotIfNeeded()
             LibraryLoadProbe.mark("snapshotSaved")
 
-            let durationMs = Int(Date().timeIntervalSince(loadStartedAt) * 1000)
-            Analytics.track(.libraryLoadCompleted(
-                channelCount: channels.count,
-                itemCount: allItems.count,
-                background: isBackground,
-                durationMs: durationMs,
-                partial: scanWasAbandoned
-            ))
-            if channels.isEmpty {
-                Analytics.track(.libraryLoadEmpty)
-            }
-
             // The lineup only really changes on a load, so this is the cheap
             // place to refresh what the Top Shelf shows. No-ops until the App
             // Group exists.
@@ -496,12 +466,8 @@ extension AppState {
             isBackgroundRefreshing = false
             isLoadStalling = false
             print("[Plex90] loadLibrary failed: \(api)")
-            let reason = String(describing: api)
-            if isBackground {
-                // Silent to the user; still important for reliability metrics.
-                Analytics.track(.libraryRefreshBackgroundFailed(reason: reason))
-            } else {
-                Analytics.track(.libraryLoadFailed(reason: reason, background: false))
+            // A background refresh failure stays silent to the user.
+            if !isBackground {
                 errorMessage = Self.userFacingServerError(api, justAuthenticated: justAuthenticated, backend: backendKind)
                 lastFailureDiagnostic = diagnosticString(for: api)
                 if case .unauthorized = api, !justAuthenticated {
@@ -518,11 +484,8 @@ extension AppState {
             isBackgroundRefreshing = false
             isLoadStalling = false
             print("[Plex90] loadLibrary failed: \(error)")
-            let reason = Self.analyticsReason(for: error)
-            if isBackground {
-                Analytics.track(.libraryRefreshBackgroundFailed(reason: reason))
-            } else {
-                Analytics.track(.libraryLoadFailed(reason: reason, background: false))
+            // A background refresh failure stays silent to the user.
+            if !isBackground {
                 errorMessage = Self.userFacingLoadLibraryError(error, backend: backendKind)
                 let host = URL(string: serverURL)?.host ?? "?"
                 if let stalled = error as? LibraryLoadStalled {
@@ -782,19 +745,6 @@ extension AppState {
         }
         enrichmentRefillTask = task
         return task
-    }
-
-    /// Stable, PII-free label for an unexpected library-load failure.
-    ///
-    /// This exists because the analytics reason used to be `error.localizedDescription`,
-    /// which is free-form text the app does not control. Some Foundation and third-party
-    /// errors interpolate the failing URL into that string, which would have put a user's
-    /// server address into an analytics event and contradicted the privacy policy.
-    /// Domain plus code is enough to group failures and cannot carry a hostname.
-    static func analyticsReason(for error: Error) -> String {
-        if error is LibraryLoadStalled { return "load_stalled" }
-        let ns = error as NSError
-        return "\(ns.domain)_\(ns.code)"
     }
 
     /// Captures the library on the main actor (copy-on-write, no copying) and writes it on

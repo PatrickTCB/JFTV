@@ -169,31 +169,17 @@ final class NowPlayingPanelLogicTests: XCTestCase {
 
     // MARK: - NowPlayingPanelLayout.programRows
 
-    func testProgramRows_openInPlex_appendsLast() {
-        let rows = NowPlayingPanelLayout.programRows(
-            hasSubtitleTracks: true, audioTrackCount: 2, canOpenInPlex: true
-        )
-        XCTAssertEqual(rows.last, .openInPlex)
-        // Leaving the app must never displace an in-app control.
-        XCTAssertEqual(rows.dropLast().count, rows.count - 1)
-        XCTAssertFalse(
-            NowPlayingPanelLayout.programRows(
-                hasSubtitleTracks: true, audioTrackCount: 2, canOpenInPlex: false
-            ).contains(.openInPlex)
-        )
-    }
-
     func testProgramRows_noSubtitlesSingleAudioTrack_isCaptionsAndAudioOnly() {
         // Nothing to pick between, so neither language preference is offered.
         XCTAssertEqual(
-            NowPlayingPanelLayout.programRows(hasSubtitleTracks: false, audioTrackCount: 1, canOpenInPlex: false),
+            NowPlayingPanelLayout.programRows(hasSubtitleTracks: false, audioTrackCount: 1),
             [.captionsHeader, .captions, .audioHeader, .audioTracks]
         )
     }
 
     func testProgramRows_ccRowSurvivesAProgramWithNoSubtitles() {
         // Initial panel focus lands on the CC row, so it has to exist regardless.
-        let rows = NowPlayingPanelLayout.programRows(hasSubtitleTracks: false, audioTrackCount: 0, canOpenInPlex: false)
+        let rows = NowPlayingPanelLayout.programRows(hasSubtitleTracks: false, audioTrackCount: 0)
         XCTAssertTrue(rows.contains(.captions))
         XCTAssertFalse(rows.contains(.subtitleLanguage))
         XCTAssertFalse(rows.contains(.autoSubtitles))
@@ -201,21 +187,21 @@ final class NowPlayingPanelLogicTests: XCTestCase {
 
     func testProgramRows_withSubtitles_addsSubtitlePreferences() {
         XCTAssertEqual(
-            NowPlayingPanelLayout.programRows(hasSubtitleTracks: true, audioTrackCount: 1, canOpenInPlex: false),
+            NowPlayingPanelLayout.programRows(hasSubtitleTracks: true, audioTrackCount: 1),
             [.captionsHeader, .captions, .subtitleLanguage, .autoSubtitles, .audioHeader, .audioTracks]
         )
     }
 
     func testProgramRows_multipleAudioTracks_addsAudioLanguage() {
         XCTAssertEqual(
-            NowPlayingPanelLayout.programRows(hasSubtitleTracks: false, audioTrackCount: 2, canOpenInPlex: false),
+            NowPlayingPanelLayout.programRows(hasSubtitleTracks: false, audioTrackCount: 2),
             [.captionsHeader, .captions, .audioHeader, .audioTracks, .audioLanguage]
         )
     }
 
     func testProgramRows_everythingAvailable_fullOrder() {
         XCTAssertEqual(
-            NowPlayingPanelLayout.programRows(hasSubtitleTracks: true, audioTrackCount: 3, canOpenInPlex: false),
+            NowPlayingPanelLayout.programRows(hasSubtitleTracks: true, audioTrackCount: 3),
             [
                 .captionsHeader, .captions, .subtitleLanguage, .autoSubtitles,
                 .audioHeader, .audioTracks, .audioLanguage
@@ -224,7 +210,7 @@ final class NowPlayingPanelLogicTests: XCTestCase {
     }
 
     func testProgramRows_headersAlwaysPrecedeTheirRows() {
-        let rows = NowPlayingPanelLayout.programRows(hasSubtitleTracks: true, audioTrackCount: 2, canOpenInPlex: false)
+        let rows = NowPlayingPanelLayout.programRows(hasSubtitleTracks: true, audioTrackCount: 2)
         let captionsHeader = rows.firstIndex(of: .captionsHeader)
         let audioHeader = rows.firstIndex(of: .audioHeader)
         XCTAssertEqual(captionsHeader, 0)

@@ -106,7 +106,7 @@ final class JellyfinAPITests: XCTestCase {
     /// An MP4 saved as `.mkv` probes as `mov`, passes the direct-play gate, and was served by
     /// `/stream` as `video/x-matroska`, which AVPlayer refuses (-11828). Asking for
     /// `stream.mp4` gets the same bytes labelled `video/mp4`. Every direct-play builder,
-    /// Jellyfin, Emby and the PlaybackInfo branch, has to ask the same way.
+    /// Jellyfin and the PlaybackInfo branch, has to ask the same way.
     func testDirectPlayAsksForTheFileAsMp4OnEveryBuilder() throws {
         let item = try decodeItem("""
         { "Id": "m1", "Name": "A", "RunTimeTicks": 6000000000,
@@ -115,7 +115,6 @@ final class JellyfinAPITests: XCTestCase {
             "MediaStreams": [ { "Type": "Video", "Codec": "h264" }, { "Type": "Audio", "Codec": "aac" } ] } ] }
         """)
         let jf = makeService()
-        let emby = EmbyAPIService(serverURL: "http://jf.local:8096", accessToken: "TKN", userId: "u1")
         let mapped = try XCTUnwrap(jf.parseMovieItem(item, isMusicSection: false))
         let info = try JSONDecoder().decode(JellyfinPlaybackResolver.PlaybackInfoResponse.self, from: Data("""
         { "MediaSources": [ { "Id": "src1", "SupportsDirectPlay": true } ], "PlaySessionId": "p" }
@@ -125,7 +124,6 @@ final class JellyfinAPITests: XCTestCase {
         XCTAssertTrue(resolved.isDirectPlay)
 
         for url in [try XCTUnwrap(jf.buildDirectPlayURL(for: mapped)),
-                    try XCTUnwrap(emby.buildDirectPlayURL(for: mapped)),
                     resolved.url] {
             let c = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false))
             XCTAssertEqual(c.path, "/Videos/m1/stream.mp4", url.absoluteString)
@@ -168,8 +166,7 @@ final class JellyfinAPITests: XCTestCase {
         XCTAssertEqual(tenBitH264.videoBitDepth, 10, "bit depth is read from the video stream")
         let hevcMp4 = try mapped(#"{ "Type": "Video", "Codec": "hevc", "BitDepth": 10 }"#)
         let eightBitH264 = try mapped(#"{ "Type": "Video", "Codec": "h264", "BitDepth": 8 }"#)
-        let emby = EmbyAPIService(serverURL: "http://emby.local:8096", accessToken: "TKN", userId: "u")
-        for backend in [makeService() as any MediaBackend, emby] {
+        for backend in [makeService() as any MediaBackend] {
             XCTAssertNil(backend.buildDirectPlayURL(for: tenBitH264), "10-bit H.264 plays as sound over black")
             XCTAssertNil(backend.buildDirectPlayURL(for: hevcMp4), "only the server knows whether it is tagged hvc1")
             XCTAssertNotNil(backend.buildDirectPlayURL(for: eightBitH264))
@@ -213,16 +210,16 @@ final class BackendKindPersistenceTests: XCTestCase {
         func delete(key: String) { values[key] = nil }
     }
 
-    func testBackendKindDefaultsToPlex() {
+    func testBackendKindDefaultsToJellyfin() {
         let store = InMemoryStore()
         let state = AppState(credentialStore: store)
-        state.serverURL = "https://plex.example"
+        state.serverURL = "https://jf.example"
         state.token = "t"
         state.saveCredentials()
 
         let rehydrated = AppState(credentialStore: store)
         rehydrated.loadCredentials()
-        XCTAssertEqual(rehydrated.backendKind, .plex)
+        XCTAssertEqual(rehydrated.backendKind, .jellyfin)
     }
 
     func testJellyfinBackendRoundTrips() {
@@ -241,7 +238,7 @@ final class BackendKindPersistenceTests: XCTestCase {
         XCTAssertEqual(rehydrated.token, "JF_TOKEN")
     }
 
-    func testClearCredentialsResetsBackendToPlex() {
+    func testClearCredentialsResetsBackendToJellyfin() {
         let store = InMemoryStore()
         let state = AppState(credentialStore: store)
         state.backendKind = .jellyfin
@@ -251,7 +248,7 @@ final class BackendKindPersistenceTests: XCTestCase {
         state.saveCredentials()
 
         state.clearCredentials()
-        XCTAssertEqual(state.backendKind, .plex)
+        XCTAssertEqual(state.backendKind, .jellyfin)
         XCTAssertEqual(state.jellyfinUserId, "")
     }
 }

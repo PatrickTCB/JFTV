@@ -48,7 +48,13 @@ final class LibraryDiagnosticsTests: XCTestCase {
 
     func testThousandsAreGrouped() {
         let items = (0..<2629).map { item($0, type: $0 < 349 ? .movie : .episode, title: "T\($0 % 80)") }
-        XCTAssertTrue(LibraryDiagnostics.summary(items).contains("2,629 titles"))
+        let summary = LibraryDiagnostics.summary(items)
+        // Grouped through the locale's own formatter, so the test reads the same on any TV.
+        let grouped = LibraryDiagnostics.fmt(2629)
+        XCTAssertTrue(summary.contains("\(grouped) titles"), summary)
+        if grouped != "2629" {
+            XCTAssertFalse(summary.contains("2629 titles"), "the count must be grouped, not raw: \(summary)")
+        }
     }
 
     func testPercentRounds() {

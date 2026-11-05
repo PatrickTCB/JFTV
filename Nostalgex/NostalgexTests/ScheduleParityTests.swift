@@ -229,24 +229,25 @@ final class ScheduleParityTests: XCTestCase {
         let rawData = try JSONSerialization.data(withJSONObject: rawObject)
         let show = spec["show"] as? [String: Any] ?? [:]
         switch (backend, kind) {
-        case ("plex", "movie"):
-            let raw = try JSONDecoder().decode(PlexRawItem.self, from: rawData)
-            return (raw.ratingKey, PlexAPIService(serverURL: "", token: "").parseMovieItem(raw, isMusicSection: false))
-        case ("plex", "episode"):
-            // PlexAPIService.makeEpisodeItem is private; these are its schedule inputs, as it reads them.
-            let raw = try JSONDecoder().decode(PlexRawItem.self, from: rawData)
-            let minutes = (raw.duration ?? 0) / 60000
-            guard minutes > 0 else { return (raw.ratingKey, nil) }
-            return (raw.ratingKey, item(key: raw.ratingKey, title: show["title"] as? String ?? "", type: .episode,
-                                        minutes: minutes, addedAt: raw.addedAt ?? 0))
-        case ("jellyfin", "movie"):
+        case ("plex", "movie"), ("plex", "episode"):
+            // The Plex client is retired, but the golden vectors keep the Plex item
+            // shapes. Its parser read exactly these fields: ratingKey, title (show
+            // title for episodes), duration in ms and addedAt.
+            let key = try XCTUnwrap(rawObject["ratingKey"] as? String)
+            let minutes = (int(rawObject["duration"]) ?? 0) / 60000
+            guard minutes > 0 else { return (key, nil) }
+            let title = kind == "episode"
+                ? (show["title"] as? String ?? "")
+                : (rawObject["title"] as? String ?? "")
+            return (key, item(key: key, title: title, type: kind == "episode" ? .episode : .movie,
+                              minutes: minutes, addedAt: int(rawObject["addedAt"]) ?? 0))
+        case ("jellyfin", "movie"), ("emby", "movie"):
+            // Emby served the same item shape and its parser was field-for-field the
+            // Jellyfin one, so both golden backends decode through JellyfinItem.
             let raw = try JSONDecoder().decode(JellyfinItem.self, from: rawData)
             return (raw.Id, JellyfinAPIService(serverURL: "", accessToken: "", userId: "").parseMovieItem(raw, isMusicSection: false))
-        case ("emby", "movie"):
-            let raw = try JSONDecoder().decode(JellyfinItem.self, from: rawData)
-            return (raw.Id, EmbyAPIService(serverURL: "", accessToken: "", userId: "").parseMovieItem(raw, isMusicSection: false))
         case ("jellyfin", "episode"), ("emby", "episode"):
-            // The episode loops in JellyfinAPIService/EmbyAPIService.fetchEpisodes, as they read them.
+            // The episode loop in JellyfinAPIService.fetchEpisodes, as it reads them.
             let raw = try JSONDecoder().decode(JellyfinItem.self, from: rawData)
             let minutes = JellyfinAPIService.minutes(fromTicks: raw.RunTimeTicks)
             guard minutes > 0 else { return (raw.Id, nil) }

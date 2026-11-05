@@ -135,11 +135,6 @@ final class LibrarySnapshotCompatibilityTests: XCTestCase {
         XCTAssertEqual(position.item.partKey, film.partKey, file: file, line: line)
         XCTAssertEqual(position.baseSeconds, 0, file: file, line: line)
         XCTAssertEqual(position.offsetSeconds, 135, file: file, line: line)
-        // ...and the same first-version, first-part transcode request as before.
-        let query = PlexAPIService.transcodeQueryItems(for: film, sessionID: "test", offsetSeconds: 12,
-            isLocal: true, quality: .low, token: "synthetic", clientID: "synthetic", hevcCapable: true)
-        XCTAssertEqual(query.first { $0.name == "mediaIndex" }?.value, "0", file: file, line: line)
-        XCTAssertEqual(query.first { $0.name == "partIndex" }?.value, "0", file: file, line: line)
     }
 
     func testVersionAndPartFieldsSurviveTheSnapshot() throws {

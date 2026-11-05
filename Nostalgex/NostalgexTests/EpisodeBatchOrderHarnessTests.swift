@@ -3,14 +3,14 @@ import XCTest
 
 /// A rescan must give the same guide when nothing on the server changed.
 ///
-/// Every backend fetches a TV section's episodes one show at a time, several shows at once.
+/// The backend fetches a TV section's episodes one show at a time, several shows at once.
 /// The schedule reads the library in the order it arrives (`interleaveByShow` groups shows
 /// in first-seen order before its seeded shuffle), so if that order follows which request
 /// happened to finish first, two scans of the same library build two different guides.
 ///
 /// This harness serves one fixed TV library from a local HTTP server inside the test, with
 /// each show's episode request held back by a delay, and loads it through the REAL
-/// `loadLibrary` of each backend twice: once with the delays in show order, once shuffled.
+/// `loadLibrary` twice: once with the delays in show order, once shuffled.
 /// It then builds three days of the guide from each load with the real
 /// `DailyManifestScheduler` and counts the channel-minutes that differ. Same library, same
 /// guide: the count must be zero.
@@ -57,51 +57,16 @@ final class EpisodeBatchOrderHarnessTests: XCTestCase {
         return nil
     }
 
-    /// Plex. `bulk` false makes the `type=4` sweep come back empty, which sends the app to
-    /// its per-show fallback (`fetchEpisodesPerShow`).
-    private static func plexReply(path: String, query: [String: String], shuffled: Bool, bulk: Bool) -> Reply? {
-        func episodes(_ i: Int) -> [[String: Any]] {
-            (0..<episodeCount(i)).map { e in
-                ["ratingKey": "\(showID(i))e\(e)", "title": "Episode \(e)", "type": "episode",
-                 "grandparentRatingKey": showID(i), "grandparentTitle": "Show \(i)",
-                 "parentIndex": 1, "index": e + 1, "duration": episodeMinutes(i, e) * 60_000]
-            }
-        }
-        if path == "/library/sections" {
-            return Reply(delayMs: 0, body: ["MediaContainer": ["Directory": [["key": "1", "title": "TV", "type": "show"]]]])
-        }
-        if path == "/library/sections/1/all" {
-            let start = Int(query["X-Plex-Container-Start"] ?? "0") ?? 0
-            let size = Int(query["X-Plex-Container-Size"] ?? "500") ?? 500
-            let all: [[String: Any]]
-            if query["type"] == "4" {
-                all = bulk ? (0..<showCount).flatMap { episodes($0) } : []
-            } else {
-                all = (0..<showCount).map { ["ratingKey": showID($0), "title": "Show \($0)", "type": "show"] }
-            }
-            let page = Array(all.dropFirst(start).prefix(size))
-            return Reply(delayMs: 0, body: ["MediaContainer": ["totalSize": all.count, "Metadata": page]])
-        }
-        if path.hasPrefix("/library/metadata/show"), path.hasSuffix("/allLeaves") {
-            let key = path.dropFirst("/library/metadata/".count).dropLast("/allLeaves".count)
-            guard let i = Int(key.dropFirst(4)) else { return nil }
-            return Reply(delayMs: delayMs(i, shuffled: shuffled), body: ["MediaContainer": ["Metadata": episodes(i)]])
-        }
-        return nil
-    }
-
     private typealias FakeServer = LoopbackJSONServer
 
     // MARK: - Loads
 
-    private enum Backend: String, CaseIterable { case jellyfin, emby, plexBulk, plexPerShow }
+    private enum Backend: String, CaseIterable { case jellyfin }
 
     private func load(_ backend: Backend, shuffled: Bool) async throws -> [PlexMediaItem] {
         let server = try FakeServer { path, query in
             switch backend {
-            case .jellyfin, .emby: return Self.jellyfinReply(path: path, query: query, shuffled: shuffled)
-            case .plexBulk: return Self.plexReply(path: path, query: query, shuffled: shuffled, bulk: true)
-            case .plexPerShow: return Self.plexReply(path: path, query: query, shuffled: shuffled, bulk: false)
+            case .jellyfin: return Self.jellyfinReply(path: path, query: query, shuffled: shuffled)
             }
         }
         try await server.start()
@@ -110,10 +75,6 @@ final class EpisodeBatchOrderHarnessTests: XCTestCase {
         switch backend {
         case .jellyfin:
             return try await JellyfinAPIService(serverURL: url, accessToken: "t", userId: "u").loadLibrary()
-        case .emby:
-            return try await EmbyAPIService(serverURL: url, accessToken: "t", userId: "u").loadLibrary()
-        case .plexBulk, .plexPerShow:
-            return try await PlexAPIService(serverURL: url, token: "t").loadLibrary()
         }
     }
 

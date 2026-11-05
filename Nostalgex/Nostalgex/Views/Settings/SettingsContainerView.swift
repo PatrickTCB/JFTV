@@ -73,11 +73,6 @@ struct SettingsContainerView: View {
             // a prior Settings visit) still shows up to be turned back on.
             await appState.refreshAvailableLibrarySections()
         }
-        .task {
-            // Tip tiles stay hidden until (and unless) StoreKit returns the products.
-            guard !appState.isDemoMode else { return }
-            await TipJar.shared.loadProductsIfNeeded()
-        }
         .onChange(of: appState.hasCredentials) { _, has in
             // DISCONNECT was pressed: pop back so RootView routes to the sign-in screen.
             if !has { dismiss() }
@@ -108,7 +103,6 @@ struct SettingsContainerView: View {
         case .playback: return SettingsPlaybackView.firstRowID
         case .channels: return SettingsChannelsView.firstRowID(page: channelsPage, appState: appState)
         case .servers: return SettingsServersView.firstRowID(appState: appState)
-        case .pro: return SettingsProView.firstRowID
         case .about: return SettingsAboutView.firstRowID
         }
     }
@@ -197,8 +191,6 @@ struct SettingsContainerView: View {
             }
         case .servers:
             SettingsServersView(focus: $focus)
-        case .pro:
-            SettingsProView(focus: $focus)
         case .about:
             SettingsAboutView(focus: $focus)
         }

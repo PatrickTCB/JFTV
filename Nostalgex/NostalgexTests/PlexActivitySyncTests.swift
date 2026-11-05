@@ -40,7 +40,7 @@ final class PlexActivitySyncTests: XCTestCase {
         XCTAssertEqual(defaults.object(forKey: key) as? Bool, false)
     }
 
-    // With no Plex API the tracker must be completely inert: no timeline, no scrobble.
+    // With no watch reporter the tracker must be completely inert: no activity, no scrobble.
     // This is what makes the OFF default actually stop Continue Watching entries, since
     // AppState supplies explicit off flags while retaining the backend for live toggles.
     func testPlaybackTrackerWithoutAPI_neverScrobbles() {
@@ -75,7 +75,7 @@ final class PlexActivitySyncTests: XCTestCase {
             imdbID: nil,
             librarySource: .movie
         )
-        let tracker = PlaybackTracker(item: item, seekOffset: 0, plexAPI: nil)
+        let tracker = PlaybackTracker(item: item, seekOffset: 0)
         tracker.onPlaybackReady()
         tracker.stop()
         XCTAssertFalse(tracker.scrobbled)

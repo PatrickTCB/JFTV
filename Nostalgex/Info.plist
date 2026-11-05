@@ -27,7 +27,5 @@
 	<string>$(SUPABASE_ANON_KEY)</string>
 	<key>SupabaseURL</key>
 	<string>$(SUPABASE_URL)</string>
-	<key>TelemetryDeckAppID</key>
-	<string>2943D3D0-35BC-430F-B0BD-EFF3A5FE79D7</string>
 </dict>
 </plist>

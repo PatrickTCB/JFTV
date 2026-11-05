@@ -33,11 +33,12 @@ final class SignInGoldenTests: XCTestCase {
         return list
     }
 
+    /// Only Jellyfin is left in the app; the golden file still carries rows for the
+    /// retired Emby and Plex backends (the web tuner keeps its history), and those
+    /// rows are skipped here.
     private func kind(_ name: Any?) -> MediaBackendKind? {
         switch name as? String {
         case "jellyfin": return .jellyfin
-        case "emby": return .emby
-        case "plex": return .plex
         default: return nil
         }
     }
@@ -68,10 +69,11 @@ final class SignInGoldenTests: XCTestCase {
 
     func testDiscoveryReplies() throws {
         for c in try cases("discoveryReplies") {
-            let k = try XCTUnwrap(kind(c["kind"]))
+            guard let k = kind(c["kind"]) else { continue }   // retired backend row
             let got = LANServerDiscovery.parse(reply: Data((c["reply"] as? String ?? "").utf8), kind: k)
             if let out = c["out"] as? [String: Any] {
-                XCTAssertEqual(got, DiscoveredServer(kind: try XCTUnwrap(kind(out["kind"])), name: out["name"] as? String ?? "",
+                guard let outKind = kind(out["kind"]) else { continue }   // retired backend row
+                XCTAssertEqual(got, DiscoveredServer(kind: outKind, name: out["name"] as? String ?? "",
                                                      address: out["address"] as? String ?? "", id: out["id"] as? String ?? ""),
                                "reply: \(c["reply"] ?? "")")
             } else {
@@ -104,8 +106,9 @@ final class SignInGoldenTests: XCTestCase {
         for c in try cases("publicInfo") {
             let got = SignInFlow.parsePublicInfo(Data((c["body"] as? String ?? "").utf8))
             if let out = c["out"] as? [String: Any] {
+                guard let outKind = kind(out["kind"]) else { continue }   // retired backend row
                 XCTAssertEqual(got, SignInFlow.PublicInfo(id: out["id"] as? String ?? "", name: out["name"] as? String ?? "",
-                                                          kind: try XCTUnwrap(kind(out["kind"]))),
+                                                          kind: outKind),
                                "body: \(c["body"] ?? "")")
             } else {
                 XCTAssertNil(got, "not a server: \(c["body"] ?? "")")
@@ -130,7 +133,7 @@ final class SignInGoldenTests: XCTestCase {
 
     func testMethod() throws {
         for c in try cases("method") {
-            let k = try XCTUnwrap(kind(c["kind"]))
+            guard let k = kind(c["kind"]) else { continue }   // retired backend row
             let enabled = optionalBool(c["quickConnectEnabled"])
             let preferred: SignInFlow.Method = c["preferred"] as? String == "quickConnect" ? .quickConnect : .password
             XCTAssertEqual(SignInFlow.preferredMethod(kind: k, quickConnectEnabled: enabled), preferred, "\(c)")
@@ -185,6 +188,9 @@ final class SignInGoldenTests: XCTestCase {
     func testCheck() async throws {
         for c in try cases("check") {
             let name = c["name"] as? String ?? "?"
+            // Retired-backend rows: an Emby answer is "not a server" to this app now,
+            // which contradicts the frozen golden expectation, so they are skipped.
+            if let out = c["out"] as? [String: Any], kind(out["kind"]) == nil { continue }
             let fake = FakeServer()
             for (url, pair) in c["routes"] as? [String: [Any]] ?? [:] {
                 fake.routes[url] = (pair[0] as? Int ?? 0, pair[1] as? String ?? "")

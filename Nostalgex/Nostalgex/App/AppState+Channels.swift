@@ -69,9 +69,6 @@ extension AppState {
         }
         let nowEnabled = enabledBundleIDs.contains(bundle.id)
         print("[Plex90] TOGGLE: '\(bundle.id)' now \(nowEnabled ? "ON" : "OFF")")
-        // Bundle IDs are static (`essentials`, `high-rotation`, `collections-franchises`,
-        // …); safe to include as-is. Nothing here reveals library or user identity.
-        Analytics.track(.settingChanged(key: "bundle:\(bundle.id)", value: nowEnabled ? "true" : "false"))
 
         rebuildLineupAfterBundleChange(newlyEnabled: nowEnabled ? [bundle] : [], byViewer: true)
     }
@@ -221,7 +218,6 @@ extension AppState {
     /// removes it. What the season controls is when it is offered and when it leads.
     func answerSeasonalPrompt(_ answer: SeasonalPrompt.Answer, for bundle: ChannelBundle) {
         let turnOn = SeasonalPrompt.record(answer, bundleID: bundle.id, now: Date())
-        Analytics.track(.settingChanged(key: "seasonalPrompt:\(bundle.id)", value: "\(answer)"))
         seasonalPromptRevision += 1
         guard turnOn else { return }   // declined: the invite row just stops being offered
         toggleBundle(bundle)

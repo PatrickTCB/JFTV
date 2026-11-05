@@ -30,7 +30,6 @@ extension AppState {
             ratingNudgeStore.recordShown(version: ratingNudgeLaunch.appVersion)
         }
         print("[Plex90] Rating nudge shown (sessions=\(persisted.qualifyingSessions), version=\(ratingNudgeLaunch.appVersion), forced=\(ratingNudgeLaunch.forced))")
-        Analytics.track(.ratingNudgeShown)
         isRatingNudgeVisible = true
         ratingNudgeDismissTask?.cancel()
         ratingNudgeDismissTask = Task { @MainActor [weak self] in
@@ -42,7 +41,6 @@ extension AppState {
 
     /// RATE: the caller opens the product page.
     func ratingNudgeRateTapped() {
-        Analytics.track(.ratingNudgeTapped)
         recordRatingTapped()
         dismissRatingNudge()
     }

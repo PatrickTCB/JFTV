@@ -1,13 +1,13 @@
 import XCTest
 @testable import Nostalgex
 
-/// Jellyfin (and Emby) file the videos in a Music Videos library as `MusicVideo`, not
+/// Jellyfin files the videos in a Music Videos library as `MusicVideo`, not
 /// `Movie` (@owenvoke, PR #151). The app asked every non-TV library for
 /// `IncludeItemTypes=Movie`, so a Music Videos library came back empty and HIGH ROTATION
-/// never filled on Jellyfin or Emby (I-067).
+/// never filled on Jellyfin (I-067).
 ///
-/// A loopback server answers `/Items` the way both servers do: only the item types asked
-/// for. The library is loaded through each backend's REAL `loadLibrary`.
+/// A loopback server answers `/Items` the way the server does: only the item types asked
+/// for. The library is loaded through the REAL `loadLibrary`.
 final class MusicVideoItemTypeTests: XCTestCase {
 
     private static func ticks(_ minutes: Int) -> Int64 { Int64(minutes) * 60 * 10_000_000 }
@@ -41,7 +41,7 @@ final class MusicVideoItemTypeTests: XCTestCase {
         return LoopbackReply(delayMs: 0, body: ["Items": Array(items.dropFirst(start)), "TotalRecordCount": items.count])
     }
 
-    private enum Backend: String, CaseIterable { case jellyfin, emby }
+    private enum Backend: String, CaseIterable { case jellyfin }
 
     private func load(_ backend: Backend) async throws -> (items: [PlexMediaItem], server: LoopbackJSONServer) {
         let server = try LoopbackJSONServer { Self.reply(path: $0, query: $1) }
@@ -50,8 +50,6 @@ final class MusicVideoItemTypeTests: XCTestCase {
         switch backend {
         case .jellyfin:
             return (try await JellyfinAPIService(serverURL: server.url, accessToken: "t", userId: "u").loadLibrary(), server)
-        case .emby:
-            return (try await EmbyAPIService(serverURL: server.url, accessToken: "t", userId: "u").loadLibrary(), server)
         }
     }
 

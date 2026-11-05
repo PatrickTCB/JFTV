@@ -68,7 +68,7 @@ final class JellyfinPlaybackInfoTests: XCTestCase {
         }
     }
 
-    func testBothServicesSendTheSubtitleFields() throws {
+    func testTheServiceSendsTheSubtitleFields() throws {
         let item = PlexMediaItem(
             id: "4242", title: "Film", artist: nil, episodeTitle: nil, seTag: nil,
             summary: "", year: 2001, originallyAvailableAt: nil, contentRating: nil,
@@ -80,8 +80,6 @@ final class JellyfinPlaybackInfoTests: XCTestCase {
         )
         let requests: [(String, URLRequest?)] = [
             ("Jellyfin", JellyfinAPIService(serverURL: "http://jelly.local:8096", accessToken: "TKN", userId: "u1")
-                .playbackInfoRequest(for: item, serverStreamOnly: false)),
-            ("Emby", EmbyAPIService(serverURL: "http://emby.local:8096", accessToken: "TKN", userId: "u1")
                 .playbackInfoRequest(for: item, serverStreamOnly: false)),
         ]
         for (name, request) in requests {
@@ -185,7 +183,7 @@ final class JellyfinPlaybackInfoTests: XCTestCase {
         XCTAssertEqual(Set(subs.map { $0["Method"] ?? "" }), ["Encode"])
     }
 
-    // MARK: - The two PlaybackInfo requests, through both services
+    // MARK: - The two PlaybackInfo requests, through the service
 
     /// Answers PlaybackInfo like a server: the first request (no subtitle) gets `first`,
     /// a request naming a track gets `burned`, or an error when `burned` is nil.
@@ -263,9 +261,7 @@ final class JellyfinPlaybackInfoTests: XCTestCase {
         let send: JellyfinPlaybackResolver.PlaybackInfoSend = { try await server.send($0) }
         let jellyfin = await JellyfinAPIService(serverURL: "http://jelly.local:8096", accessToken: "TKN", userId: "u1")
             .negotiatePlayback(for: mkv(), serverStreamOnly: false, preferredSubtitleLanguage: "en", send: send)
-        let emby = await EmbyAPIService(serverURL: "http://emby.local:8096", accessToken: "TKN", userId: "u1")
-            .negotiatePlayback(for: mkv(), serverStreamOnly: false, preferredSubtitleLanguage: "en", send: send)
-        return [("Jellyfin", jellyfin), ("Emby", emby)]
+        return [("Jellyfin", jellyfin)]
     }
 
     func testAFileWithAForcedTrackAsksASecondTimeAndPlaysTheBurnedStream() async throws {
@@ -275,12 +271,12 @@ final class JellyfinPlaybackInfoTests: XCTestCase {
             XCTAssertEqual(r.playSessionId, "burned", name)
             XCTAssertTrue(r.url.absoluteString.contains("PlaySessionId=burned"), name)
         }
-        XCTAssertEqual(server.sentIndexes, [-1, 5, -1, 5], "no subtitle first, then the forced track, on each service")
+        XCTAssertEqual(server.sentIndexes, [-1, 5], "no subtitle first, then the forced track")
         let methods = server.bodies.map { body -> Set<String> in
             let profiles = (body["DeviceProfile"] as? [String: Any])?["SubtitleProfiles"] as? [[String: String]] ?? []
             return Set(profiles.map { $0["Method"] ?? "" })
         }
-        XCTAssertEqual(methods, [["External"], ["Encode"], ["External"], ["Encode"]])
+        XCTAssertEqual(methods, [["External"], ["Encode"]])
     }
 
     // MARK: - The burned stream is tried before it is chosen
@@ -291,7 +287,7 @@ final class JellyfinPlaybackInfoTests: XCTestCase {
             XCTAssertEqual(try XCTUnwrap(resolution, name).playSessionId, "burned", name)
         }
         let paths = server.fetched.map { $0.path }
-        XCTAssertEqual(paths.count, 6, "master, variant, segment, on each service")
+        XCTAssertEqual(paths.count, 3, "master, variant, segment")
         XCTAssertEqual(Array(paths.prefix(3)).map { String($0.split(separator: "/").last ?? "") },
                        ["master.m3u8", "main.m3u8", "0.ts"])
         XCTAssertEqual(server.fetched[2].path, "/videos/4242/hls1/main/0.ts", "relative to the variant playlist")
@@ -399,7 +395,7 @@ final class JellyfinPlaybackInfoTests: XCTestCase {
         for (name, resolution) in await negotiate(server) {
             XCTAssertEqual(try XCTUnwrap(resolution, name).playSessionId, "plain", name)
         }
-        XCTAssertEqual(server.sentIndexes, [-1, -1], "one request per service, no subtitle")
+        XCTAssertEqual(server.sentIndexes, [-1], "one request, no subtitle")
     }
 
     func testWhenTheBurnRequestFailsTheFilmStillPlaysWithoutIt() async throws {
@@ -407,7 +403,7 @@ final class JellyfinPlaybackInfoTests: XCTestCase {
         for (name, resolution) in await negotiate(server) {
             XCTAssertEqual(try XCTUnwrap(resolution, name).playSessionId, "plain", name)
         }
-        XCTAssertEqual(server.sentIndexes, [-1, 5, -1, 5])
+        XCTAssertEqual(server.sentIndexes, [-1, 5])
     }
 
     // MARK: - Dolby Vision arrives signalled as Dolby Vision

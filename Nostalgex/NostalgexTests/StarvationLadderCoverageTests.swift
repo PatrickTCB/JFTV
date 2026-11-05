@@ -34,8 +34,6 @@ final class StarvationLadderCoverageTests: XCTestCase {
         [
             ("Jellyfin", JellyfinAPIService(serverURL: "http://192.0.2.79:8096",
                                             accessToken: "tok", userId: "u1")),
-            ("Emby", EmbyAPIService(serverURL: "http://192.0.2.79:8096",
-                                    accessToken: "tok", userId: "u1")),
         ]
     }
 
@@ -68,7 +66,7 @@ final class StarvationLadderCoverageTests: XCTestCase {
         }
     }
 
-    /// Jellyfin and Emby reject a start time on segment requests, which is the whole reason
+    /// Jellyfin rejects a start time on segment requests, which is the whole reason
     /// PR #5 moved the tune-in seek client-side. The capped retry goes down the same path,
     /// so it must not smuggle an offset back onto the URL.
     func testTheCappedRungCarriesNoStartTimeOnTheBackendsThatRefuseOne() throws {
@@ -82,12 +80,5 @@ final class StarvationLadderCoverageTests: XCTestCase {
             XCTAssertFalse(raw.contains("StartTimeTicks"), "\(name): \(raw)")
             XCTAssertFalse(raw.contains("2851"), "\(name): offset leaked onto the URL — \(raw)")
         }
-    }
-
-    /// Plex is the other half of the contract: it builds the offset into the request, so the
-    /// caller must not seek on top of it.
-    func testPlexStillReportsThatItsCappedStreamStartsAtTheOffset() {
-        let plex = PlexAPIService(serverURL: "http://192.0.2.79:32400", token: "t")
-        XCTAssertTrue(plex.cappedStreamStartsAtOffset)
     }
 }

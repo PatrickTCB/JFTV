@@ -20,22 +20,10 @@ final class PlaybackFailureRunTests: XCTestCase {
         } else {
             UserDefaults.standard.removeObject(forKey: AppState.syncPlexActivityDefaultsKey)
         }
-        Analytics.configure(with: NoOpAnalytics())
         UserDefaults.standard.removePersistentDomain(forName: "PlaybackFailureRunTests")
     }
 
     // MARK: - Fixtures
-
-    private final class Recorder: AnalyticsService, @unchecked Sendable {
-        private let lock = NSLock()
-        private var _events: [(at: Date, event: AnalyticsEvent)] = []
-        var events: [(at: Date, event: AnalyticsEvent)] { lock.lock(); defer { lock.unlock() }; return _events }
-        var errors: [AnalyticsEvent] { events.map(\.event).filter { $0.name == "playback.error" } }
-        func configure() {}
-        func track(_ event: AnalyticsEvent, contextParameters: [String: String]) {
-            lock.lock(); _events.append((Date(), event)); lock.unlock()
-        }
-    }
 
     private struct NoCredentials: CredentialStoring {
         func save(key: String, value: String) -> Bool { true }
@@ -116,39 +104,31 @@ final class PlaybackFailureRunTests: XCTestCase {
         state.player = nil
     }
 
-    // MARK: - One report per failure
+    // MARK: - One card per failure
 
     /// Direct play fails and there is no server stream: the player retries once, the
-    /// retry fails, the card shows. That is one failure and one `playback.error`.
-    func testRetryPathReportsOneErrorPerFailure() async {
+    /// retry fails, the card shows.
+    func testRetryPathShowsTheFailureCard() async {
         let backend = Backend(direct: { _ in Self.missingFile })
         let ch = channel(1, keys: ["a", "b", "c"])
         let state = makeState(backend, channels: [ch])
-        let recorder = Recorder()
-        Analytics.configure(with: recorder, gate: nil)
         state.selectChannel(ch)
         await waitUntil(5) { isShowingFailure(state) }
         try? await Task.sleep(for: .milliseconds(300))
         XCTAssertTrue(isShowingFailure(state))
-        XCTAssertEqual(recorder.errors.count, 1, "\(recorder.errors.map { $0.parameters["code"] ?? "" })")
         tearDown(state)
     }
 
-    /// Direct play fails, the server stream is tried and fails too: one fallback signal,
-    /// one `playback.error`.
-    func testTranscodeFailedPathReportsOneErrorPerFailure() async {
+    /// Direct play fails, the server stream is tried and fails too: the card shows.
+    func testTranscodeFailedPathShowsTheFailureCard() async {
         let backend = Backend(direct: { _ in Self.missingFile }, transcode: { _ in Self.missingPlaylist })
         let ch = channel(2, keys: ["a", "b", "c"])
         let state = makeState(backend, channels: [ch])
-        let recorder = Recorder()
-        Analytics.configure(with: recorder, gate: nil)
         state.selectChannel(ch)
         // tvOS 27 can report the missing HLS file after the old five-second deadline.
         await waitUntil(30) { isShowingFailure(state) }
         try? await Task.sleep(for: .milliseconds(300))
         XCTAssertTrue(isShowingFailure(state))
-        XCTAssertEqual(recorder.events.filter { $0.event.name == "playback.transcode_fallback" }.count, 1)
-        XCTAssertEqual(recorder.errors.count, 1, "\(recorder.errors.map { $0.parameters["code"] ?? "" })")
         tearDown(state)
     }
 
@@ -156,40 +136,26 @@ final class PlaybackFailureRunTests: XCTestCase {
 
     /// (a) Every programme fails at once (no stream to open). The first four show their
     /// card and skip; the fifth stops the channel. Nothing more is asked of the server.
-    /// (d) The gate sends one playback.error for the code; the session summary counts five.
     func testChannelWhereNothingPlaysStopsAfterFiveFailures() async throws {
         let backend = Backend(direct: { _ in nil })
         let ch = channel(3, keys: ["a", "b", "c", "d", "e", "f"])
         let state = makeState(backend, channels: [ch])
         state.errorCardSeconds = 0.05
-        let recorder = Recorder()
-        Analytics.configure(with: recorder, gate: nil)
 
         state.selectChannel(ch)
         await waitUntil(5) { state.channelFailureRun.isStopped }
         XCTAssertTrue(state.channelFailureRun.isStopped)
         XCTAssertEqual(state.channelFailureRun.count, ChannelFailureRun.limit)
         XCTAssertEqual(backend.requests, 5, "one load per failure, then none")
-        guard case .error(.channelStopped(let last)) = state.playbackState else {
+        guard case .error(.channelStopped) = state.playbackState else {
             return XCTFail("expected the stopped card, got \(state.playbackState)")
         }
-        XCTAssertEqual(last.analyticsCode, .noPlayableSource)
         XCTAssertNil(state.playbackSkipTask, "no skip is pending")
         XCTAssertNil(state.player?.currentItem)
 
         try await Task.sleep(for: .milliseconds(600))   // twelve card lengths
         XCTAssertEqual(backend.requests, 5, "still nothing asked of the server")
-        XCTAssertEqual(recorder.errors.count, 5, "one report per failure")
         XCTAssertTrue(state.channelFailureRun.isStopped)
-
-        // (d) Through the gate: one error for the one code; the summary counts failures.
-        var gate = AnalyticsGate()
-        let recorded = recorder.events + [(Date(), AnalyticsEvent.sessionEnded(activeSeconds: 30))]
-        let sent = recorded.flatMap { gate.admit($0.event, at: $0.at) }
-        XCTAssertEqual(sent.filter { $0.name == "playback.error" }.count, 1)
-        guard case .sessionEnded(_, let summary?) = sent.last else { return XCTFail("no summary") }
-        XCTAssertEqual(summary.playbackErrors, 5)
-        XCTAssertEqual(summary.wireParameters["playbackErrors"], "2-5")
         tearDown(state)
     }
 
@@ -202,8 +168,6 @@ final class PlaybackFailureRunTests: XCTestCase {
         let ch = channel(4, keys: ["bad", "good1", "good2", "good3"])
         let state = makeState(backend, channels: [ch])
         state.errorCardSeconds = 0.05
-        let recorder = Recorder()
-        Analytics.configure(with: recorder, gate: nil)
 
         state.currentChannel = ch
         state.currentItem = item("bad")
@@ -212,7 +176,6 @@ final class PlaybackFailureRunTests: XCTestCase {
         await waitUntil(8) { state.playbackState == .playing }
         XCTAssertEqual(state.playbackState, .playing, "the next programme plays")
         XCTAssertNotEqual(state.currentItem?.ratingKey, "bad")
-        XCTAssertEqual(recorder.errors.count, 1)
         XCTAssertEqual(state.channelFailureRun.count, 1)
         XCTAssertFalse(state.channelFailureRun.isStopped)
         tearDown(state)
@@ -248,14 +211,13 @@ final class PlaybackFailureRunTests: XCTestCase {
         let other = channel(7, keys: ["x", "y"])
         let state = makeState(backend, channels: [dead, other])
         state.errorCardSeconds = 0.05
-        Analytics.configure(with: Recorder(), gate: nil)
 
         state.selectChannel(dead)
         await waitUntil(5) { state.channelFailureRun.isStopped }
         XCTAssertTrue(state.channelFailureRun.isStopped)
 
         // Another channel: a fresh run there, which (also unplayable) counts from one.
-        state.tuneChannelFromUser(other, method: .next)
+        state.selectChannel(other)
         XCTAssertEqual(state.channelFailureRun.channelID, other.id)
         XCTAssertEqual(state.channelFailureRun.count, 1)
         XCTAssertFalse(state.channelFailureRun.isStopped)
@@ -263,7 +225,7 @@ final class PlaybackFailureRunTests: XCTestCase {
 
         // The stopped channel, selected again: it tries again from zero.
         let before = backend.requests
-        state.tuneChannelFromUser(dead, method: .guide)
+        state.selectChannel(dead)
         XCTAssertEqual(state.channelFailureRun.count, 1)
         XCTAssertEqual(backend.requests, before + 1)
         await waitUntil(5) { state.channelFailureRun.isStopped }
@@ -296,7 +258,7 @@ final class PlaybackFailureRunTests: XCTestCase {
     }
 
     func testStoppedCardWording() {
-        let last = PlaybackFailure.serverRefused(server: "Emby", status: 500)
+        let last = PlaybackFailure.serverRefused(server: "Jellyfin", status: 500)
         let stopped = PlaybackFailure.channelStopped(last: last)
         XCTAssertEqual(stopped.headline, "Nothing on this channel will play right now")
         XCTAssertEqual(stopped.detail,
@@ -304,7 +266,6 @@ final class PlaybackFailureRunTests: XCTestCase {
                        + "Last reason: Your server wouldn't start this one.")
         XCTAssertEqual(stopped.nextStep, "Try another channel, or select this one again to retry.")
         XCTAssertEqual(last.nextStep, "Moving on to the next programme.")
-        XCTAssertEqual(stopped.analyticsCode, last.analyticsCode)
         XCTAssertEqual(stopped.isServerSide, last.isServerSide)
         for text in [stopped.headline, stopped.detail, stopped.nextStep, stopped.diagnosticSummary] {
             XCTAssertFalse(text.contains("\u{2014}"), "no em dashes: \(text)")

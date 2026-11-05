@@ -372,8 +372,6 @@ extension AppState {
         foundFranchises[idx].enabled.toggle()
         let nowEnabled = foundFranchises[idx].enabled
         recordFranchiseChoice(franchise.id, on: nowEnabled)
-        // No id in the event: a franchise id says which films the viewer owns.
-        Analytics.track(.settingChanged(key: "franchise", value: nowEnabled ? "true" : "false"))
         saveFranchisePreferences()
         materializeDynamicChannels()
         applyBundleFilter()
@@ -391,7 +389,6 @@ extension AppState {
         }
         let nowOn = !isStockFranchiseOn(row.id)
         recordFranchiseChoice(row.id, on: nowOn)
-        Analytics.track(.settingChanged(key: "franchise", value: nowOn ? "true" : "false"))
         saveFranchisePreferences()
         applyBundleFilter()
         reselectIfCurrentChannelLeft()
@@ -415,9 +412,6 @@ extension AppState {
             saveFranchisePreferences()
         }
         guard stockChanged else { return }
-        if !foundChanged {
-            Analytics.track(.settingChanged(key: "franchise:all", value: enabled ? "true" : "false"))
-        }
         applyBundleFilter()
         reselectIfCurrentChannelLeft()
     }
@@ -433,7 +427,6 @@ extension AppState {
             recordFranchiseChoice(foundFranchises[i].id, on: enabled)
         }
         guard changed else { return }
-        Analytics.track(.settingChanged(key: "franchise:all", value: enabled ? "true" : "false"))
         saveFranchisePreferences()
         materializeDynamicChannels()
         applyBundleFilter()

@@ -136,7 +136,7 @@ final class LibraryLoadStallDetectorTests: XCTestCase {
             LibraryLoadStallDetector.defaultWarnAfter,
             LibraryLoadStallDetector.defaultStallAfter
         )
-        // Above the ~181s worst-case retry ladder in PlexAPIService.dataWithRetry.
+        // Above the ~181s worst-case retry ladder in the API service's data-with-retry.
         XCTAssertGreaterThan(LibraryLoadStallDetector.defaultStallAfter, 182)
     }
 }

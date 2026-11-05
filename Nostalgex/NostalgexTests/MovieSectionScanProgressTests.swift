@@ -40,11 +40,10 @@ final class MovieSectionScanProgressTests: XCTestCase {
         return (start >= slowFrom ? slowMs : 0, ["Items": page, "TotalRecordCount": movieCount])
     }
 
-    private enum Backend: CaseIterable { case emby, jellyfin }
+    private enum Backend: CaseIterable { case jellyfin }
 
     private func service(_ backend: Backend, url: String) -> any MediaBackend {
         switch backend {
-        case .emby: return EmbyAPIService(serverURL: url, accessToken: "t", userId: "u")
         case .jellyfin: return JellyfinAPIService(serverURL: url, accessToken: "t", userId: "u")
         }
     }

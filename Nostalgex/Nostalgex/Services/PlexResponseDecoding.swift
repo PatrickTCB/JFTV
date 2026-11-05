@@ -81,10 +81,10 @@ enum PlexUTF8Repair {
         case 0xC2 ... 0xDF: return continuation(1) ? 2 : 0
         case 0xE0: return continuation(1, 0xA0) && continuation(2) ? 3 : 0
         case 0xE1 ... 0xEC, 0xEE ... 0xEF: return continuation(1) && continuation(2) ? 3 : 0
-        case 0xED: return continuation(1, 0x80) && continuation(1, 0x9F) && continuation(2) ? 3 : 0
+        case 0xED: return continuation(1, 0x80, 0x9F) && continuation(2) ? 3 : 0
         case 0xF0: return continuation(1, 0x90) && continuation(2) && continuation(3) ? 4 : 0
         case 0xF1 ... 0xF3: return continuation(1) && continuation(2) && continuation(3) ? 4 : 0
-        case 0xF4: return continuation(1, 0x80) && continuation(2, 0x8F) && continuation(3) ? 4 : 0
+        case 0xF4: return continuation(1, 0x80, 0x8F) && continuation(2) && continuation(3) ? 4 : 0
         default: return 0
         }
     }

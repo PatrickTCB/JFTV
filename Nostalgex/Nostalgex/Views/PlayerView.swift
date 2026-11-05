@@ -147,7 +147,7 @@ struct PlayerView: View {
                         channels: appState.channels,
                         currentChannelID: appState.currentChannel?.id,
                         onSelect: { channel in
-                            appState.tuneChannelFromUser(channel, method: .miniStrip)
+                            appState.selectChannel(channel)
                             hideMiniGuide()
                             flashOSD()
                         },

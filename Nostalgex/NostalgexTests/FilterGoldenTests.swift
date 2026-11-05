@@ -80,7 +80,7 @@ final class FilterGoldenTests: XCTestCase {
     }
 
     /// What `makeFilterCache` builds for this item in the app: artist first, then title,
-    /// lowercased, trailing " (YYYY)" stripped, and the channel eligibility for its backend.
+    /// lowercased, trailing " (YYYY)" stripped.
     @MainActor
     private func cache(_ g: Item) -> AppState.FilterCache {
         let item = plexItem(g)
@@ -101,9 +101,7 @@ final class FilterGoldenTests: XCTestCase {
             episodeTitleLower: (g.episodeTitle ?? "").lowercased(),
             genresLowerSet: Set((g.genres ?? []).map { $0.lowercased() }),
             enrichment: enrichment,
-            itemStudioLower: (g.studio ?? "").lowercased(),
-            leftOffChannels: ChannelEligibility.isLeftOffChannels(
-                item, backend: g.backend.flatMap(MediaBackendKind.init(rawValue:)) ?? .plex)
+            itemStudioLower: (g.studio ?? "").lowercased()
         )
     }
 
@@ -118,6 +116,10 @@ final class FilterGoldenTests: XCTestCase {
         XCTAssertFalse(golden.cases.isEmpty)
 
         for c in golden.cases {
+            // The golden file still carries rows for the retired Emby Dolby Vision
+            // profile-5 left-off rule (`ChannelEligibility`, gone with the Emby backend);
+            // the app no longer implements it, so those cases are skipped here.
+            if c.item.backend == "emby", c.item.doviProfile == 5 { continue }
             let cached = [cache(c.item)]
             func passes(_ id: Int) -> Bool? {
                 guard let ch = channels[id] else { return nil }

@@ -92,13 +92,12 @@ _(Your own email.)_
 
 See `PRIVACY_POLICY.md` for the full, accurate description. Short version for the questionnaire:
 
-- **Collected:** anonymous product interaction and diagnostic events, plus an anonymous, hashed,
-  vendor-scoped device identifier used only to group one device's events. Analytics are off if the
-  TelemetryDeck id is removed from `Info.plist`.
+- **Collected:** nothing. The app contains no analytics, telemetry, crash-reporting or advertising
+  SDK and sends no usage events.
 - **Not collected:** name, email, account details, server credentials, server address, library
-  contents, titles, watch history, advertising identifiers.
-- **Not used for tracking** across apps or websites owned by other companies. No advertising, no data
-  brokers, no selling.
+  contents, titles, watch history, advertising identifiers — all of it.
+- **Not used for tracking** across apps or websites owned by other companies. No advertising, no
+  data brokers, no selling. No in-app purchases.
 
 ---
 
@@ -139,6 +138,6 @@ The app connects to:
 - TMDB and OMDb, via a relay, and a Supabase cache — optional metadata enrichment, off unless
   enabled at build time
 - MusicBrainz, then Deezer (public music metadata for the music video channels)
-- TelemetryDeck (anonymous usage analytics; off if the app id is removed)
 
-No credentials, server addresses, or library contents are transmitted to the app developer.
+No credentials, server addresses, or library contents are transmitted to the app developer. The app
+contains no analytics, telemetry or payment code of any kind.

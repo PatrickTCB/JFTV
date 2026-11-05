@@ -1,14 +1,12 @@
 import SwiftUI
 
-/// The six tabs of the Settings rail (N-028). SUPPORT NOSTALGEX is pinned above a
-/// divider so it is never buried; the others follow in this order. NOSTALGEX PRO only
-/// shows while `SettingsFeatures.showProTab` is on (see `visible`).
+/// The tabs of the Settings rail. SUPPORT NOSTALGEX is pinned above a divider so it
+/// is never buried; the others follow in this order.
 enum SettingsCategory: String, CaseIterable, Identifiable, Hashable {
     case support
     case playback
     case channels
     case servers
-    case pro
     case about
 
     var id: String { rawValue }
@@ -19,7 +17,6 @@ enum SettingsCategory: String, CaseIterable, Identifiable, Hashable {
         case .playback: return "PLAYBACK & PICTURE"
         case .channels: return "CHANNELS & BUNDLES"
         case .servers: return "SERVERS & ACCOUNTS"
-        case .pro: return "NOSTALGEX PRO"
         case .about: return "ABOUT"
         }
     }
@@ -27,11 +24,10 @@ enum SettingsCategory: String, CaseIterable, Identifiable, Hashable {
     /// One line under the hero title.
     var subtitle: String {
         switch self {
-        case .support: return "A star rating or a tip, whichever suits"
+        case .support: return "Leave a star rating"
         case .playback: return "Picture, quality, subtitles and audio"
         case .channels: return "Packages, franchises, collections and the schedule"
         case .servers: return "Servers, libraries, rescans and sign out"
-        case .pro: return "What Pro adds"
         case .about: return "Version and links"
         }
     }
@@ -46,7 +42,6 @@ enum SettingsCategory: String, CaseIterable, Identifiable, Hashable {
         case .playback: return "tv"
         case .channels: return "square.stack.3d.up.fill"
         case .servers: return "server.rack"
-        case .pro: return "crown.fill"
         case .about: return "info.circle"
         }
     }
@@ -59,20 +54,12 @@ enum SettingsCategory: String, CaseIterable, Identifiable, Hashable {
         case .playback: return "SettingsHeroPlayback"
         case .channels: return "SettingsHeroChannels"
         case .servers: return "SettingsHeroServers"
-        case .pro: return "SettingsHeroPro"
         case .about: return "SettingsHeroAbout"
         }
     }
 
-    /// The tabs the rail shows, in rail order. NOSTALGEX PRO is left out while
-    /// `SettingsFeatures.showProTab` is off; every case still exists, so the switches
-    /// over categories and the Pro screen keep compiling.
-    static func visible(showPro: Bool = SettingsFeatures.showProTab) -> [SettingsCategory] {
-        allCases.filter { showPro || $0 != .pro }
-    }
-
-    static var pinned: [SettingsCategory] { visible().filter(\.isPinned) }
-    static var unpinned: [SettingsCategory] { visible().filter { !$0.isPinned } }
+    static var pinned: [SettingsCategory] { allCases.filter(\.isPinned) }
+    static var unpinned: [SettingsCategory] { allCases.filter { !$0.isPinned } }
 }
 
 /// One focus value for the whole Settings screen, so the container can move focus

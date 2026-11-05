@@ -125,9 +125,6 @@ struct SettingsPlaybackView: View {
         }
         .sheet(isPresented: $showStreamQualityPicker) {
             StreamQualityPickerSheet(selected: streamQuality) { picked in
-                if picked != streamQuality {
-                    Analytics.track(.settingChanged(key: "stream_quality", value: picked.rawValue))
-                }
                 StreamQuality.current = picked
                 streamQuality = picked
                 appState.preferenceSync.record(PreferenceSync.streamQualityKey, value: picked.rawValue)

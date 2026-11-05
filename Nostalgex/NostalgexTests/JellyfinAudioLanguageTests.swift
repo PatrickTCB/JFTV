@@ -51,7 +51,7 @@ final class JellyfinAudioLanguageTests: XCTestCase {
         )
     }
 
-    /// The `AudioStreamIndex` each service puts on the stream URL with `setting` stored.
+    /// The `AudioStreamIndex` the service puts on the stream URL with `setting` stored.
     private func askedTrack(setting: String) async throws -> [String: String?] {
         AppDefaults.standard.set(setting, forKey: Self.key)
         let send: JellyfinPlaybackResolver.PlaybackInfoSend = { request in
@@ -59,10 +59,8 @@ final class JellyfinAudioLanguageTests: XCTestCase {
         }
         let jellyfin = await JellyfinAPIService(serverURL: "http://jelly.invalid:8096", accessToken: "TKN", userId: "u1")
             .negotiatePlayback(for: item(), serverStreamOnly: false, preferredSubtitleLanguage: "en", send: send)
-        let emby = await EmbyAPIService(serverURL: "http://emby.invalid:8096", accessToken: "TKN", userId: "u1")
-            .negotiatePlayback(for: item(), serverStreamOnly: false, preferredSubtitleLanguage: "en", send: send)
         var out: [String: String?] = [:]
-        for (name, r) in [("Jellyfin", jellyfin), ("Emby", emby)] {
+        for (name, r) in [("Jellyfin", jellyfin)] {
             let url = try XCTUnwrap(r?.url, name)
             XCTAssertFalse(r?.isDirectPlay ?? true, name)
             let q = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []

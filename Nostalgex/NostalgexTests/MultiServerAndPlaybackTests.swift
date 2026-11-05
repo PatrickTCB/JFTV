@@ -55,27 +55,28 @@ final class MultiServerAndPlaybackTests: XCTestCase {
 
     // MARK: - Container guard (Phase 1a)
 
+    private func api() -> JellyfinAPIService {
+        JellyfinAPIService(serverURL: "https://server", accessToken: "tok", userId: "u1")
+    }
+
     func testDirectPlay_skipsNonNativeContainerEvenWithSupportedCodecs() {
-        let api = PlexAPIService(serverURL: "https://server", token: "tok")
-        XCTAssertNil(api.buildDirectPlayURL(for: makeItem(container: "mkv", video: "h264", audio: "aac")),
+        XCTAssertNil(api().buildDirectPlayURL(for: makeItem(container: "mkv", video: "h264", audio: "aac")),
                      "mkv must not direct play even with native codecs")
-        XCTAssertNil(api.buildDirectPlayURL(for: makeItem(container: "avi", video: "h264", audio: "aac")))
+        XCTAssertNil(api().buildDirectPlayURL(for: makeItem(container: "avi", video: "h264", audio: "aac")))
     }
 
     func testDirectPlay_allowsNativeContainers() {
-        let api = PlexAPIService(serverURL: "https://server", token: "tok")
-        XCTAssertNotNil(api.buildDirectPlayURL(for: makeItem(container: "mp4", video: "h264", audio: "aac")))
+        XCTAssertNotNil(api().buildDirectPlayURL(for: makeItem(container: "mp4", video: "h264", audio: "aac")))
         // HEVC direct play is hardware-dependent now: the Apple TV HD (and the simulator)
         // cannot decode it, and handing it the file produced a silent black screen. The
         // service must agree with the device's actual capability, whichever way it reports.
-        let hevcAllowed = api.buildDirectPlayURL(for: makeItem(container: "mov", video: "hevc", audio: "ac3")) != nil
+        let hevcAllowed = api().buildDirectPlayURL(for: makeItem(container: "mov", video: "hevc", audio: "ac3")) != nil
         XCTAssertEqual(hevcAllowed, CodecSupport.deviceSupportsHEVC)
     }
 
     func testDirectPlay_stillBlocksUnsupportedCodecs() {
-        let api = PlexAPIService(serverURL: "https://server", token: "tok")
-        XCTAssertNil(api.buildDirectPlayURL(for: makeItem(container: "mp4", video: "vc1", audio: "aac")))
-        XCTAssertNil(api.buildDirectPlayURL(for: makeItem(container: "mp4", video: "h264", audio: "dts")))
+        XCTAssertNil(api().buildDirectPlayURL(for: makeItem(container: "mp4", video: "vc1", audio: "aac")))
+        XCTAssertNil(api().buildDirectPlayURL(for: makeItem(container: "mp4", video: "h264", audio: "dts")))
     }
 
     // MARK: - Composite id (Phase 2d)

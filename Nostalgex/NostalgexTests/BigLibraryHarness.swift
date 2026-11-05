@@ -237,7 +237,7 @@ final class BigLibraryHarness: XCTestCase {
         (0..<n).map { _ in rng.pick(words).capitalized }.joined(separator: " ")
     }
 
-    /// Shaped like what `PlexAPIService` hands `loadLibrary`: episodes copy their show's
+    /// Shaped like what `JellyfinAPIService` hands `loadLibrary`: episodes copy their show's
     /// title/studio/art/genre strings (shared storage, as `makeEpisodeItem` does) and carry
     /// their own summary, episode title, thumb and part key. Movies 10%, episodes 60%,
     /// music videos 30%. Music TRACKS are not generated: the Plex fetch never returns them.

@@ -28,10 +28,7 @@ final class JellyfinContainerMismatchHarness: XCTestCase {
             if let p = env["NOSTALGEX_JF_OUT"] { try? out.joined(separator: "\n").write(toFile: p, atomically: true, encoding: .utf8) }
         }
 
-        // NOSTALGEX_JF_BACKEND=emby points the same run at an Emby server.
-        let api: any MediaBackend = env["NOSTALGEX_JF_BACKEND"] == "emby"
-            ? EmbyAPIService(serverURL: url, accessToken: token, userId: user)
-            : JellyfinAPIService(serverURL: url, accessToken: token, userId: user)
+        let api: any MediaBackend = JellyfinAPIService(serverURL: url, accessToken: token, userId: user)
         let items = try await api.loadLibrary()
         let picked = items.filter { item in fragments.isEmpty || fragments.contains { item.title.contains($0) } }
         XCTAssertFalse(picked.isEmpty, "no library item matched \(fragments)")

@@ -2,14 +2,14 @@ import XCTest
 import Network
 @testable import Nostalgex
 
-/// Issue #146: on a Plex server with several large libraries, a few sections stop
+/// Issue #146: on a server with several large libraries, a few sections stop
 /// answering during the first scan. Tapping STOP WAITING either moves on to a guide or
 /// takes the app down, roughly half the time each.
 ///
-/// This harness serves a Plex library from a loopback HTTP server inside the test. Some
+/// This harness serves a Jellyfin library from a loopback HTTP server inside the test. Some
 /// sections answer, some answer slowly, and some never answer at all (the connection is
 /// held open and nothing is sent). It drives the REAL first load (`AppState.loadLibrary`,
-/// the real `PlexAPIService`, the real stall watch, the real partial-guide path), taps
+/// the real `JellyfinAPIService`, the real stall watch, the real partial-guide path), taps
 /// STOP WAITING (`stopWaitingForLibraryScan`, what the button calls) at varied moments,
 /// then builds the guide the way TunerView does and waits for the snapshot write.
 ///
@@ -51,59 +51,85 @@ final class StopWaitingHarnessTests: XCTestCase {
 
     nonisolated static func movie(_ section: String, _ i: Int) -> [String: Any] {
         [
-            "ratingKey": "m\(section)-\(i)", "title": "Movie \(section)-\(i)", "type": "movie",
-            "year": 1970 + i % 50, "duration": (85 + i % 60) * 60_000, "contentRating": ["G", "PG", "PG-13", "R"][i % 4],
-            "Genre": [["tag": genres[i % genres.count]], ["tag": genres[(i * 3 + 1) % genres.count]]],
-            "Media": [["container": "mkv", "videoCodec": "h264", "audioCodec": "aac", "Part": [["key": "/library/parts/\(section)\(i)/file.mkv"]]]],
+            "Id": "m\(section)-\(i)", "Name": "Movie \(section)-\(i)", "Type": "Movie",
+            "ProductionYear": 1970 + i % 50,
+            "RunTimeTicks": Int64(85 + i % 60) * 60 * 10_000_000,
+            "OfficialRating": ["G", "PG", "PG-13", "R"][i % 4],
+            "Genres": [genres[i % genres.count], genres[(i * 3 + 1) % genres.count]],
+            "ProviderIds": ["Tmdb": "\(10_000 + i)"],
+            "DateCreated": "2020-01-01T00:00:00Z",
+            "MediaSources": [["Id": "ms\(section)-\(i)", "Container": "mkv",
+                              "MediaStreams": [["Type": "Video", "Codec": "h264"],
+                                               ["Type": "Audio", "Codec": "aac"]]]],
         ]
     }
 
     nonisolated static func show(_ section: String, _ i: Int) -> [String: Any] {
         [
-            "ratingKey": "s\(section)-\(i)", "title": "Show \(section)-\(i)", "type": "show", "year": 1980 + i % 40,
-            "contentRating": ["TV-G", "TV-PG", "TV-14"][i % 3],
-            "Genre": [["tag": genres[i % genres.count]]],
+            "Id": "s\(section)-\(i)", "Name": "Show \(section)-\(i)", "Type": "Series",
+            "ProductionYear": 1980 + i % 40,
+            "OfficialRating": ["TV-G", "TV-PG", "TV-14"][i % 3],
+            "Genres": [genres[i % genres.count]],
+            "ProviderIds": ["Tmdb": "\(20_000 + i)"],
         ]
     }
 
     nonisolated static func episode(_ section: String, _ show: Int, _ e: Int) -> [String: Any] {
         [
-            "ratingKey": "e\(section)-\(show)-\(e)", "title": "Episode \(e + 1)", "type": "episode",
-            "grandparentRatingKey": "s\(section)-\(show)", "grandparentTitle": "Show \(section)-\(show)",
-            "parentIndex": 1 + e / 10, "index": 1 + e % 10, "duration": [22, 24, 30, 44][(show + e) % 4] * 60_000,
-            "Media": [["container": "mkv", "videoCodec": "h264", "audioCodec": "aac", "Part": [["key": "/library/parts/e\(section)\(show)\(e)/file.mkv"]]]],
+            "Id": "e\(section)-\(show)-\(e)", "Name": "Episode \(e + 1)", "Type": "Episode",
+            "SeriesName": "Show \(section)-\(show)",
+            "ParentIndexNumber": 1 + e / 10, "IndexNumber": 1 + e % 10,
+            "RunTimeTicks": Int64([22, 24, 30, 44][(show + e) % 4]) * 60 * 10_000_000,
+            "DateCreated": "2020-01-01T00:00:00Z",
+            "MediaSources": [["Id": "es\(section)-\(show)-\(e)", "Container": "mkv",
+                              "MediaStreams": [["Type": "Video", "Codec": "h264"],
+                                               ["Type": "Audio", "Codec": "aac"]]]],
         ]
     }
 
-    // MARK: - Fake Plex
+    // MARK: - Fake Jellyfin
 
     enum Reply { case json(Any, delayMs: Int), hang, notFound }
 
-    nonisolated static func plexReply(path: String, query: [String: String], sections: [SectionSpec]) -> Reply {
-        if path == "/library/sections" {
-            let dirs = sections.map { ["key": $0.key, "title": $0.title, "type": $0.type] }
-            return .json(["MediaContainer": ["Directory": dirs]], delayMs: 0)
-        }
-        let parts = path.split(separator: "/")
-        if parts.count == 4, parts[0] == "library", parts[1] == "sections", parts[3] == "all",
-           let spec = sections.first(where: { $0.key == String(parts[2]) }) {
-            let start = Int(query["X-Plex-Container-Start"] ?? "0") ?? 0
-            let size = Int(query["X-Plex-Container-Size"] ?? "500") ?? 500
-            let page = size > 0 ? start / size : 0
-            if let hang = spec.hangFromPage, page >= hang { return .hang }
-            let total: Int
-            let rows: [[String: Any]]
-            if spec.type == "movie" {
-                total = spec.count
-                rows = (start ..< min(start + size, total)).map { movie(spec.key, $0) }
-            } else if query["type"] == "4" {
-                total = spec.count * spec.episodesPerShow
-                rows = (start ..< min(start + size, total)).map { idx in episode(spec.key, idx / spec.episodesPerShow, idx % spec.episodesPerShow) }
-            } else {
-                total = spec.count
-                rows = (start ..< min(start + size, total)).map { show(spec.key, $0) }
+    /// Jellyfin wire shapes for the fixture library: `/UserViews` lists the sections,
+    /// `/Items` pages movies, series and (per series) episodes. `hangFromPage` keeps the
+    /// Plex-era meaning: movie/series pages from that index on never answer; on a TV
+    /// section 0 wedges the series list and k > 0 wedges every show from index k*10 on,
+    /// so the section stops part-way through, the way a stuck Plex section did.
+    nonisolated static func jellyfinReply(path: String, query: [String: String], sections: [SectionSpec]) -> Reply {
+        if path == "/UserViews" {
+            let views = sections.map {
+                ["Id": $0.key, "Name": $0.title, "CollectionType": $0.type == "show" ? "tvshows" : "movies"]
             }
-            return .json(["MediaContainer": ["totalSize": total, "Metadata": rows]], delayMs: spec.delayMs)
+            return .json(["Items": views, "TotalRecordCount": views.count], delayMs: 0)
+        }
+        guard path == "/Items", let parentId = query["ParentId"] else { return .notFound }
+        let start = Int(query["StartIndex"] ?? "0") ?? 0
+        let limit = max(Int(query["Limit"] ?? "200") ?? 200, 1)
+        let page = start / limit
+
+        if let spec = sections.first(where: { $0.key == parentId }) {
+            if let hang = spec.hangFromPage {
+                if spec.type == "show" {
+                    if hang == 0 { return .hang }
+                } else if page >= hang { return .hang }
+            }
+            let total = spec.count
+            let rows = (start ..< min(start + limit, total)).map {
+                spec.type == "show" ? show(spec.key, $0) : movie(spec.key, $0)
+            }
+            return .json(["Items": rows, "TotalRecordCount": total], delayMs: spec.delayMs)
+        }
+
+        // Episodes of one show, "s{section}-{show}".
+        let parts = parentId.split(separator: "-")
+        if parts.count == 2, parts[0].hasPrefix("s"),
+           let spec = sections.first(where: { $0.key == String(parts[0].dropFirst()) }),
+           let showIndex = Int(parts[1]) {
+            if let hang = spec.hangFromPage, hang > 0, showIndex >= hang * 10 { return .hang }
+            let total = spec.episodesPerShow
+            let rows = (start ..< min(start + limit, total)).map { episode(spec.key, showIndex, $0) }
+            return .json(["Items": rows, "TotalRecordCount": total], delayMs: spec.delayMs)
         }
         return .notFound
     }
@@ -273,7 +299,7 @@ final class StopWaitingHarnessTests: XCTestCase {
         defer { fakes.forEach { $0.stop() } }
         var refs: [AppState.ServerRef] = []
         for (n, specs) in serverSpecs.enumerated() {
-            let fake = try FakeServer { path, query in Self.plexReply(path: path, query: query, sections: specs) }
+            let fake = try FakeServer { path, query in Self.jellyfinReply(path: path, query: query, sections: specs) }
             try await fake.start()
             fakes.append(fake)
             refs.append(AppState.ServerRef(machineIdentifier: "stopwait-srv-\(n)", name: "Harness \(n)", baseURL: "http://127.0.0.1:\(fake.port)", owned: n == 0, token: "t\(n)"))
@@ -455,7 +481,7 @@ final class StopWaitingHarnessTests: XCTestCase {
         let specs = Self.baseSections()
         let fakeB = try FakeServer { path, query in
             requestsToB.hit()
-            return Self.plexReply(path: path, query: query, sections: specs)
+            return Self.jellyfinReply(path: path, query: query, sections: specs)
         }
         try await fakeB.start()
         defer { fakeB.stop() }
@@ -466,8 +492,8 @@ final class StopWaitingHarnessTests: XCTestCase {
         let backendA = ScriptedBackend(serverID: "srv-a", items: movieItems("a", 40, serverID: "srv-a"), seconds: 0.2) { [weak state] in
             state?.disconnect()
         }
-        // B is the real Plex service, so every request it would make reaches the counter.
-        let backendB: any MediaBackend = PlexAPIService(serverURL: b.baseURL, token: "b", serverID: "srv-b")
+        // B is the real Jellyfin service, so every request it would make reaches the counter.
+        let backendB: any MediaBackend = JellyfinAPIService(serverURL: b.baseURL, accessToken: "b", userId: "u", serverID: "srv-b")
         state.backendOverride = { ref in ref?.machineIdentifier == "srv-b" ? backendB : backendA }
         state.completeSignIn(token: "acct", servers: [a, b])
 

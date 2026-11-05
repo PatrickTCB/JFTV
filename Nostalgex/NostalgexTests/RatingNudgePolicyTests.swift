@@ -143,13 +143,4 @@ final class RatingNudgePolicyTests: XCTestCase {
         defaults.set(true, forKey: RatingNudgeStore.legacyLaunchMarkerKey)
         XCTAssertFalse(RatingNudgeStore(defaults: defaults).consumeFirstLaunch())
     }
-
-    // MARK: - Analytics
-
-    func testAnalyticsEventsHaveStableNamesAndNoParameters() {
-        XCTAssertEqual(AnalyticsEvent.ratingNudgeShown.name, "rating_nudge.shown")
-        XCTAssertEqual(AnalyticsEvent.ratingNudgeTapped.name, "rating_nudge.tapped")
-        XCTAssertTrue(AnalyticsEvent.ratingNudgeShown.parameters.isEmpty)
-        XCTAssertNil(AnalyticsEvent.ratingNudgeTapped.floatValue)
-    }
 }

@@ -422,12 +422,7 @@ final class PlaybackRecoveryOwnershipTests: XCTestCase {
         for explicit in [false, true] {
             let backend = Backend(offersCappedStream: true)
             let (state, playerItem) = makeState(backend)
-            let candidate = await PlexAPIService.resolveOriginalVideoCandidate(
-                url: URL(fileURLWithPath: "/synthetic-original.m3u8"), sessionID: "original",
-                offsetSeconds: 50, requiresOriginalVideo: explicit,
-                prepare: { _ in .init(code: "1001", text: "ok", preservesOriginalVideo: true, preservesOriginalAudio: true) },
-                stop: { _ in }, fallback: { nil })
-            state.playbackRequiresOriginalVideo = candidate!.resolution.requiresOriginalVideo
+            state.playbackRequiresOriginalVideo = explicit
             if startup {
                 state.handleWatchdogNoPicture(playerItem: playerItem, item: state.currentItem,
                     isDirectPlay: false, generation: state.loadGeneration, attempt: state.playbackAttemptGeneration,

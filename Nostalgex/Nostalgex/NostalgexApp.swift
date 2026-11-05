@@ -19,7 +19,6 @@ struct NostalgexApp: App {
         HarnessIsolation.activateFromEnvironmentIfRequested()
         #endif
         Self.registerCustomFonts()
-        Self.configureAnalytics()
         // When the viewer has turned sync on, pull synced preferences from iCloud before
         // AppState reads its defaults, so this Apple TV adopts the household lineup
         // instead of overwriting it. A no-op while sync is off (the default).
@@ -35,26 +34,9 @@ struct NostalgexApp: App {
 
     var body: some Scene {
         WindowGroup {
-            TipThanksHost {
-                RootView()
-                    .environment(appState)
-            }
-            .task {
-                #if DEBUG
-                if HarnessIsolation.isActive { return }
-                #endif
-                TipJar.shared.startListening()
-            }
+            RootView()
+                .environment(appState)
         }
-    }
-
-    private static func configureAnalytics() {
-        let isRunningTests = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
-        guard !isRunningTests, TelemetryDeckConfig.isConfigured else {
-            Analytics.configure(with: NoOpAnalytics())
-            return
-        }
-        Analytics.configure(with: TelemetryDeckAnalytics(appID: TelemetryDeckConfig.appID))
     }
 
     private static func registerCustomFonts() {

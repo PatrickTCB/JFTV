@@ -1,8 +1,8 @@
 import Foundation
 
 /// Tracks a single playback session for one item on one channel.
-/// Reports to Plex (timeline + scrobble) or to Jellyfin/Emby (session + play count).
-/// With neither reporter, it only accumulates watch time for analytics.
+/// Reports to Jellyfin (session + play count). With no reporter, it only
+/// accumulates watch time.
 ///
 /// Scrobble rule (hybrid gate), same on every server:
 ///   1. Entry gate — tuned in during the first 15% of the program
@@ -38,10 +38,6 @@ final class PlaybackTracker {
     // MARK: - Watch clock
 
     private var activeWatchSeconds: Double = 0
-    /// Independent accumulator drained by `flushWatchSecondsForAnalytics`. Kept
-    /// separate from `activeWatchSeconds` so draining it for a `playback.stopped`
-    /// analytics signal doesn't reset the scrobble threshold ( ≥ 75% of runtime ).
-    private var analyticsWatchSeconds: Double = 0
     private var watchStart: Date? = nil
 
     // MARK: - State
@@ -223,35 +219,12 @@ final class PlaybackTracker {
         onTimelineTick()
     }
 
-    /// Return the accumulated active watch time and reset the counter so the next
-    /// `playback.stopped` analytics signal doesn't double-count. Independent of the
-    /// Plex scrobble path (which needs the running total until `stop()`), so this is
-    /// called by AppState in every backend, including Jellyfin/Emby/demo.
-    ///
-    /// Safe to call while the session is still running: the split second between the
-    /// last accumulation and now is folded in, and a fresh accumulation window opens
-    /// for whatever comes next.
-    func flushWatchSecondsForAnalytics() -> Double {
-        if let start = watchStart {
-            let delta = now().timeIntervalSince(start)
-            activeWatchSeconds += delta
-            analyticsWatchSeconds += delta
-            // Keep accumulating from now if the session is still live; otherwise leave
-            // it nil so nothing is added after a stop.
-            watchStart = stopped ? nil : now()
-        }
-        let out = analyticsWatchSeconds
-        analyticsWatchSeconds = 0
-        return out
-    }
-
     // MARK: - Private
 
     private func accumulateTime() {
         guard let start = watchStart else { return }
         let delta = now().timeIntervalSince(start)
         activeWatchSeconds += delta
-        analyticsWatchSeconds += delta
         watchStart = nil
     }
 

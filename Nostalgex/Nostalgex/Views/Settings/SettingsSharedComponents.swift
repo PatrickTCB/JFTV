@@ -156,63 +156,6 @@ struct FranchiseActionButton: View {
     }
 }
 
-// MARK: - Support tile
-
-/// One of the four SUPPORT NOSTALGEX tiles: a pixel icon, a title and one short line.
-/// Focus matches SettingsToggleRow (cyan stroke, lighter fill) plus a small lift.
-struct SupportTile: View {
-    let art: PixelArt
-    let title: String
-    let caption: String
-    /// A price reads in the title weight so it stays legible from the couch.
-    var captionIsPrice: Bool = false
-    let isFocused: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            VStack(spacing: 18) {
-                PixelIconView(art: art, size: 96)
-
-                VStack(spacing: 6) {
-                    Text(title)
-                        .font(.custom("DMMono-Medium", size: 22))
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.8)
-
-                    Text(caption)
-                        .font(captionIsPrice ? .custom("DMMono-Medium", size: 22) : .custom("DMMono-Regular", size: 20))
-                        .foregroundStyle(.white.opacity(captionIsPrice ? 0.85 : 0.75))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.8)
-                }
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.horizontal, 16)
-            .padding(.top, 30)
-            .padding(.bottom, 26)
-            .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(isFocused ? .white.opacity(0.08) : .white.opacity(0.03))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 12)
-                    .stroke(
-                        isFocused ? Color("BrandCyan").opacity(0.6) : .white.opacity(0.06),
-                        lineWidth: isFocused ? 2 : 1
-                    )
-            )
-            .contentShape(RoundedRectangle(cornerRadius: 12))
-            .scaleEffect(isFocused ? 1.04 : 1.0)
-        }
-        .buttonStyle(SettingsButtonStyle(isFocused: isFocused))
-        .accessibilityLabel(title)
-        .accessibilityValue(caption)
-        .animation(.easeInOut(duration: 0.15), value: isFocused)
-    }
-}
-
 // MARK: - Toggle Row
 
 struct SettingsToggleRow: View {
@@ -231,19 +174,11 @@ struct SettingsToggleRow: View {
     var isLoading: Bool = false
     var loadingMessage: String? = nil
     var showToggle: Bool = true
-    /// Pro-only row: a lock and a PRO pill replace the switch, and select calls
-    /// onLockedTap instead of onToggle. Off by default, so existing rows are unchanged.
-    var proLocked: Bool = false
-    var onLockedTap: (() -> Void)? = nil
     let onToggle: () -> Void
 
     var body: some View {
         Button {
-            if proLocked {
-                onLockedTap?()
-            } else {
-                onToggle()
-            }
+            onToggle()
         } label: {
             HStack(spacing: 16) {
                 // Label
@@ -293,9 +228,7 @@ struct SettingsToggleRow: View {
                 }
 
                 // Toggle switch (hidden while loading or when showToggle is false)
-                if proLocked {
-                    ProLockBadge()
-                } else if !isLoading && showToggle {
+                if !isLoading && showToggle {
                     ToggleSwitch(isOn: isOn)
                 }
             }
@@ -316,7 +249,7 @@ struct SettingsToggleRow: View {
         }
         .buttonStyle(SettingsButtonStyle(isFocused: isFocused))
         .accessibilityLabel(alertBadgeLabel.map { "\(title). \($0)" } ?? title)
-        .accessibilityValue(proLocked ? "Pro only" : (isOn ? "On" : "Off"))
+        .accessibilityValue(isOn ? "On" : "Off")
         .animation(.easeInOut(duration: 0.2), value: isOn)
         .animation(.easeInOut(duration: 0.15), value: isFocused)
     }
@@ -338,30 +271,6 @@ struct AlertCountBadge: View {
             .frame(minWidth: 34, minHeight: 34)
             .background(Capsule().fill(amber))
             .accessibilityHidden(true)
-    }
-}
-
-// MARK: - Pro lock badge
-
-/// A lock and a PRO pill, in amber so Pro reads apart from the free rows' cyan.
-struct ProLockBadge: View {
-    private let amber = Color(hex: "#FFB020")
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "lock.fill")
-                .resizable()
-                .scaledToFit()
-                .frame(width: 18, height: 22)
-                .foregroundStyle(amber)
-            Text("PRO")
-                .font(.custom("VT323-Regular", size: 24))
-                .foregroundStyle(amber)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 1)
-                .overlay(Capsule().stroke(amber.opacity(0.8), lineWidth: 1.5))
-        }
-        .accessibilityHidden(true)
     }
 }
 

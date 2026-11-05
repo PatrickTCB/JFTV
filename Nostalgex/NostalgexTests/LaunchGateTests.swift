@@ -17,7 +17,6 @@ final class LaunchGateTests: XCTestCase {
 
     /// Mirrors RootView's branch order. Keep in sync with Plex90App.swift.
     private func rootShowsConnectScreen(_ s: AppState) -> Bool {
-        if s.needsServerSelection { return false }
         if s.needsLibrarySelection { return false }
         if !s.didAttemptCredentialHydration { return false }
         return !s.hasCredentials
@@ -36,7 +35,7 @@ final class LaunchGateTests: XCTestCase {
         XCTAssertFalse(state.hasCredentials, "credentials are not in memory until hydration runs")
         XCTAssertFalse(
             rootShowsConnectScreen(state),
-            "a signed-in user was shown CONNECT TO PLEX while the Keychain read was still in flight"
+            "a signed-in user was shown the connect screen while the Keychain read was still in flight"
         )
     }
 

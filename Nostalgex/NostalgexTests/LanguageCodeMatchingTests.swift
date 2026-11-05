@@ -1,16 +1,15 @@
 import XCTest
 @testable import Nostalgex
 
-/// Jellyfin and Emby label a track with a three-letter ISO 639-2 code; the viewer's
+/// Jellyfin labels a track with a three-letter ISO 639-2 code; the viewer's
 /// language is a two-letter ISO 639-1 one. The audio pick used to compare the first two
 /// letters of the track's code, so "est" (Estonian) passed as Spanish, "arm" (Armenian)
 /// as Arabic and "jav" (Javanese) as Japanese, while "cze", "ger", "pol" and "swe" never
 /// matched Czech, German, Polish or Swedish at all.
 ///
 /// The fix is one ISO 639-2 table, both the terminology and the bibliographic forms, and
-/// an exact compare. The Roku app already has that table (issue #119), so these tests read
-/// it from `roku/source/subtitles/SubtitleSettings.brs` and hold the Apple TV to it: the two
-/// apps must agree on every code.
+/// an exact compare. The table-driven tests below walk every pair in
+/// `SubtitleSelectionLogic.iso639Pairs` and hold the matching logic to it.
 final class LanguageCodeMatchingTests: XCTestCase {
 
     private typealias Stream = JellyfinPlaybackResolver.PlaybackInfoResponse.MediaStream
@@ -29,50 +28,31 @@ final class LanguageCodeMatchingTests: XCTestCase {
         JellyfinPlaybackResolver.preferredAudioIndex(in: streams, preferredLanguages: [viewer])
     }
 
-    // MARK: - The Roku table, read from the repo
+    // MARK: - The table
 
-    private static let repoRoot = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-
-    /// Every `three:two` pair in the Roku app's `NxIso639Table`.
-    private static func rokuPairs() throws -> [(three: String, two: String)] {
-        let url = repoRoot.appendingPathComponent("roku/source/subtitles/SubtitleSettings.brs")
-        let source = try String(contentsOf: url, encoding: .utf8)
-        let line = try XCTUnwrap(
-            source.components(separatedBy: "\n").first { $0.contains("pairs = \"") },
-            "NxIso639Table's pairs string not found in \(url.path)"
-        )
-        let body = try XCTUnwrap(line.split(separator: "\"").dropFirst().first)
-        return body.split(separator: " ").map {
+    /// Every `three:two` pair in `SubtitleSelectionLogic.iso639Pairs`.
+    private static func tablePairs() -> [(three: String, two: String)] {
+        SubtitleSelectionLogic.iso639Pairs.split(separator: " ").map {
             let kv = $0.split(separator: ":")
             return (String(kv[0]), String(kv[1]))
         }
     }
 
-    func testTheRokuTableIsWhereTheseTestsExpectIt() throws {
-        let pairs = try Self.rokuPairs()
+    func testTheTableCarriesBothFormsOfEveryLanguage() {
+        let pairs = Self.tablePairs()
         XCTAssertGreaterThanOrEqual(pairs.count, 200, "both forms of every ISO 639-1 language")
         XCTAssertTrue(pairs.contains { $0 == ("cze", "cs") })
         XCTAssertTrue(pairs.contains { $0 == ("ces", "cs") })
     }
 
-    /// The Swift table is the Roku string, character for character: a pair added on one
-    /// side only fails here, whichever side it is.
-    func testTheSwiftTableIsTheRokuTable() throws {
-        let rokuString = try Self.rokuPairs().map { "\($0.three):\($0.two)" }.joined(separator: " ")
-        XCTAssertEqual(SubtitleSelectionLogic.iso639Pairs, rokuString)
-    }
-
-    /// Both apps reduce every three-letter code to the same two-letter one.
-    func testEveryCodeInTheRokuTableReducesTheSameWayOnAppleTV() throws {
+    /// The pairs string parses, and every three-letter code reduces to its two-letter one.
+    func testEveryCodeInTheTableReducesToItsTwoLetterForm() {
         var wrong: [String] = []
-        for (three, two) in try Self.rokuPairs() {
+        for (three, two) in Self.tablePairs() {
             let got = SubtitleSelectionLogic.primaryLanguage(three)
             if got != two { wrong.append("\(three)->\(got ?? "nil") (want \(two))") }
         }
-        XCTAssertEqual(wrong, [], "\(wrong.count) codes disagree with the Roku table")
+        XCTAssertEqual(wrong, [], "\(wrong.count) codes did not reduce the way the table says")
     }
 
     // MARK: - Audio: the look-alikes the card names
@@ -141,8 +121,8 @@ final class LanguageCodeMatchingTests: XCTestCase {
     /// Every bibliographic or terminology code whose first two letters spell some other
     /// language's code: a viewer of that other language must not get it. Each case puts the
     /// look-alike on 6 channels and English on 2, so a false match wins on channel count.
-    func testNoThreeLetterCodeMatchesTheLanguageItsFirstTwoLettersSpell() throws {
-        let pairs = try Self.rokuPairs()
+    func testNoThreeLetterCodeMatchesTheLanguageItsFirstTwoLettersSpell() {
+        let pairs = Self.tablePairs()
         let twoLetter = Set(pairs.map(\.two))
         var wrong: [String] = []
         for (three, two) in pairs {
@@ -163,9 +143,9 @@ final class LanguageCodeMatchingTests: XCTestCase {
     /// Every language in the table, in either of its codes, is found for its own viewer.
     /// The other track is "qaa", ISO's reserved local-use code, which is nobody's language
     /// (English is not used here: it is always wanted, so it would tie).
-    func testEveryCodeMatchesItsOwnViewer() throws {
+    func testEveryCodeMatchesItsOwnViewer() {
         var missed: [String] = []
-        for (three, two) in try Self.rokuPairs() where two != "en" {
+        for (three, two) in Self.tablePairs() where two != "en" {
             let streams = [
                 stream(1, "Audio", lang: "qaa", isDefault: true, channels: 2),
                 stream(2, "Audio", lang: three, channels: 2),

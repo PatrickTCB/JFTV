@@ -78,11 +78,9 @@ final class StallRetryServerStreamTests: XCTestCase {
                        "same profile, source and bitrate: only the two flags differ")
     }
 
-    func testBothServicesPutTheFlagsOnTheRetryRequestOnly() throws {
+    func testTheServicePutsTheFlagsOnTheRetryRequestOnly() throws {
         let backends: [(String, (PlexMediaItem, Bool) -> URLRequest?)] = [
             ("Jellyfin", JellyfinAPIService(serverURL: "http://jelly.local:8096", accessToken: "TKN", userId: "u1")
-                .playbackInfoRequest),
-            ("Emby", EmbyAPIService(serverURL: "http://emby.local:8096", accessToken: "TKN", userId: "u1")
                 .playbackInfoRequest),
         ]
         for (name, build) in backends {
@@ -156,10 +154,9 @@ final class StallRetryServerStreamTests: XCTestCase {
 
     /// Loopback port 9 refuses the PlaybackInfo POST at once, so this runs the hand-built
     /// fallback: an HLS master with its own stoppable session, and a client seek.
-    func testJellyfinAndEmbyRetryWithAnHLSStreamWhenPlaybackInfoFails() async throws {
+    func testJellyfinRetriesWithAnHLSStreamWhenPlaybackInfoFails() async throws {
         let backends: [(String, any MediaBackend)] = [
             ("Jellyfin", JellyfinAPIService(serverURL: "http://127.0.0.1:9", accessToken: "k", userId: "u")),
-            ("Emby", EmbyAPIService(serverURL: "http://127.0.0.1:9", accessToken: "k", userId: "u")),
         ]
         for (name, backend) in backends {
             let result = await backend.resolveServerStream(for: mp4(), offsetSeconds: 1234)
@@ -168,16 +165,5 @@ final class StallRetryServerStreamTests: XCTestCase {
             XCTAssertTrue(resolved.resolution.url.path.hasSuffix("/master.m3u8"), "\(name): \(resolved.resolution.url.path)")
             XCTAssertFalse(resolved.startsAtOffset, "\(name): the playlist starts at zero, so the player seeks")
         }
-    }
-
-    /// Plex was never affected: its transcode request is always a server stream, and it
-    /// keeps building the offset into the request.
-    func testPlexRetryIsTheTranscodeItAlwaysWas() async throws {
-        let plex = PlexAPIService(serverURL: "http://127.0.0.1:9", token: "t", serverID: "m")
-        let result = await plex.resolveServerStream(for: mp4(), offsetSeconds: 1234)
-        let resolved = try XCTUnwrap(result)
-        XCTAssertFalse(resolved.resolution.isDirectPlay)
-        XCTAssertTrue(resolved.resolution.url.path.hasSuffix("/start.m3u8"), resolved.resolution.url.path)
-        XCTAssertTrue(resolved.startsAtOffset)
     }
 }

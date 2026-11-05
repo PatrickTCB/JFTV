@@ -9,7 +9,6 @@
 /* Begin PBXBuildFile section */
 		1D4121E0304C40AE004CCB68 /* TVServices.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1D4121DF304C40AD004CCB68 /* TVServices.framework */; };
 		1D4121E7304C40AE004CCB68 /* TopShelf.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 1D4121DD304C40AD004CCB68 /* TopShelf.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
-		1D999F7E2FCCF98400E62024 /* TelemetryDeck in Frameworks */ = {isa = PBXBuildFile; productRef = NGXTD0022F6CB0B100B56423 /* TelemetryDeck */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -113,7 +112,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				1D999F7E2FCCF98400E62024 /* TelemetryDeck in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -211,7 +209,6 @@
 			);
 			name = Nostalgex;
 			packageProductDependencies = (
-				NGXTD0022F6CB0B100B56423 /* TelemetryDeck */,
 			);
 			productName = Nostalgex;
 			productReference = 1DCC8A8E2F6CB0B100B56423 /* Nostalgex.app */;
@@ -290,7 +287,6 @@
 			mainGroup = 1DCC8A852F6CB0B100B56423;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				NGXTD0012F6CB0B100B56423 /* XCRemoteSwiftPackageReference "SwiftSDK" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 1DCC8A8F2F6CB0B100B56423 /* Products */;
@@ -784,25 +780,6 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
-
-/* Begin XCRemoteSwiftPackageReference section */
-		NGXTD0012F6CB0B100B56423 /* XCRemoteSwiftPackageReference "SwiftSDK" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/TelemetryDeck/SwiftSDK";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 2.0.0;
-			};
-		};
-/* End XCRemoteSwiftPackageReference section */
-
-/* Begin XCSwiftPackageProductDependency section */
-		NGXTD0022F6CB0B100B56423 /* TelemetryDeck */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = NGXTD0012F6CB0B100B56423 /* XCRemoteSwiftPackageReference "SwiftSDK" */;
-			productName = TelemetryDeck;
-		};
-/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 1DCC8A862F6CB0B100B56423 /* Project object */;
 }

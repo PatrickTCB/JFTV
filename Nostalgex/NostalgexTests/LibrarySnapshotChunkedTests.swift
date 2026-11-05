@@ -14,8 +14,9 @@ final class LibrarySnapshotChunkedTests: XCTestCase {
         func delete(key: String) { values[key] = nil }
     }
 
-    private static let serverID = "plex-machine-chunks"
-    private static let identity = "plex|\(serverID)"
+    private static let serverID = "jf-machine-chunks"
+    /// `AppState.snapshotIdentitySeed` for the sign-in below: `backend|serverURL|userId`.
+    private static let identity = "jellyfin|http://127.0.0.1:9|"
     private var savedLegacyCap: UInt64 = 0
 
     override func setUp() {
@@ -200,7 +201,7 @@ final class LibrarySnapshotChunkedTests: XCTestCase {
 
     func testOtherIdentityGetsNothingAndKeepsTheFiles() throws {
         try save(fixture(50))
-        XCTAssertNil(try LibrarySnapshotStore.loadSnapshot(identity: "plex|another-server"))
+        XCTAssertNil(try LibrarySnapshotStore.loadSnapshot(identity: "jellyfin|http://another-server|"))
         XCTAssertNotNil(try LibrarySnapshotStore.loadSnapshot(identity: Self.identity))
     }
 
@@ -291,7 +292,7 @@ final class LibrarySnapshotChunkedTests: XCTestCase {
 
         let store = InMemoryStore()
         let state = AppState(credentialStore: store)
-        state.completeSignIn(token: "plex-account-token", servers: [
+        state.completeSignIn(token: "account-token", servers: [
             AppState.ServerRef(machineIdentifier: Self.serverID, name: "Vault", baseURL: "http://127.0.0.1:9", owned: true, token: "srv")
         ])
         XCTAssertEqual(state.snapshotIdentitySeed, Self.identity)

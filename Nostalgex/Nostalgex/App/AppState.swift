@@ -64,11 +64,6 @@ class AppState {
 
     // MARK: - Background / foreground observation
 
-    /// Wall-clock start of the current foreground period. Set on init and on
-    /// `willEnterForeground`; drained by `emitSessionEnded()` on backgrounding.
-    /// Used only by analytics — no UI depends on it.
-    private var analyticsSessionStartedAt: Date = Date()
-
     private var reportingBackgroundTask: UIBackgroundTaskIdentifier = .invalid
 
     private func finishReportingBackgroundTask() {
@@ -103,13 +98,7 @@ class AppState {
         NotificationCenter.default.publisher(for: UIApplication.didEnterBackgroundNotification)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
-                // Flush watch time before the tracker's own background handler zeroes it.
-                self?.emitPlaybackStoppedForActiveSession()
                 self?.reportPlaybackBackgrounded()
-                // Then close out the foreground period. Ordering matters: watch time
-                // rides its own signal, and app.session.ended is the umbrella around
-                // it.
-                self?.emitSessionEnded()
             }
             .store(in: &_lifetimeObservers)
 
@@ -118,40 +107,8 @@ class AppState {
             .sink { [weak self] _ in
                 self?.playbackTracker?.onForeground()
                 self?.revalidateSleepTimerOnForeground()
-                // Start a fresh foreground window so the next background emits the
-                // right duration.
-                self?.analyticsSessionStartedAt = Date()
             }
             .store(in: &_lifetimeObservers)
-    }
-
-    /// Sends `playback.stopped` with the tracker's accumulated active-watch time and
-    /// resets that accumulator so subsequent stops don't double-count. Safe to call
-    /// when there is no live session: it silently no-ops.
-    func emitPlaybackStoppedForActiveSession() {
-        guard let tracker = playbackTracker,
-              let channel = currentChannel,
-              let delivery = currentPlaybackDelivery else { return }
-        let seconds = tracker.flushWatchSecondsForAnalytics()
-        // Skip signals with zero time so pause / rapid tune-past cases don't spam.
-        guard seconds >= 1.0 else { return }
-        Analytics.track(.playbackStopped(
-            channelNumber: channel.number,
-            backend: analyticsBackend,
-            delivery: delivery,
-            channel: AnalyticsChannelDescriptor.describe(channel),
-            activeWatchSeconds: seconds
-        ))
-    }
-
-    /// Fires `app.session.ended` with the number of wall-clock seconds this app
-    /// process has been in the foreground since the last launch or foreground
-    /// return. Zero-length windows are skipped so a fast background→foreground
-    /// re-entry doesn't send an empty envelope.
-    private func emitSessionEnded() {
-        let seconds = Date().timeIntervalSince(analyticsSessionStartedAt)
-        guard seconds >= 1.0 else { return }
-        Analytics.track(.sessionEnded(activeSeconds: seconds))
     }
 
     // MARK: - UI test hooks
@@ -208,16 +165,6 @@ class AppState {
     var backendDisplayName: String {
         switch backendKind {
         case .jellyfin: return "Jellyfin"
-        }
-    }
-
-    /// Backend value used on analytics signals. `.demo` when the session is running on
-    /// bundled sample channels — separate from real backends so demo watch time can be
-    /// filtered out on the dashboard without touching the real cohort.
-    var analyticsBackend: AnalyticsBackend {
-        if isDemoMode { return .demo }
-        switch backendKind {
-        case .jellyfin: return .jellyfin
         }
     }
 
@@ -367,7 +314,6 @@ class AppState {
     /// same path as an automatic stall, so there is only one behaviour to reason about.
     func stopWaitingForLibraryScan() {
         guard isLoading else { return }
-        Analytics.track(.libraryStopWaitingTapped)
         loadCancelRequested = true
     }
 
@@ -380,7 +326,6 @@ class AppState {
     /// poll); disconnect() bumps the session generation so nothing the load still has in
     /// flight lands afterwards.
     func startOver() {
-        Analytics.track(.settingChanged(key: "start_over", value: isHoldingAfterUnfinishedLoads ? "after_unfinished_loads" : "loading_screen"))
         if isLoading { loadCancelRequested = true }
         isHoldingAfterUnfinishedLoads = false
         LaunchGuard.loadEnded()
@@ -398,12 +343,6 @@ class AppState {
     // Sign-in state
     var isAuthInProgress: Bool = false
     var authError: String? = nil
-    /// Backend + method for the sign-in currently in flight. Set by the
-    /// `authenticateJellyfin` / `startJellyfinQuickConnect` entry points and cleared once
-    /// the attempt resolves. Only used by analytics — it drives `connect.cancelled` /
-    /// `connect.code_expired`, which need to say WHICH kind of sign-in the user backed
-    /// out of.
-    var currentAuthAttempt: (backend: AnalyticsBackend, method: AnalyticsConnectMethod)? = nil
     /// Jellyfin Quick Connect code the user enters/approves in their dashboard.
     /// Displayed by the login screen while polling.
     var jellyfinQuickConnectCode: String = ""
@@ -503,7 +442,6 @@ class AppState {
         didSet {
             guard iCloudSyncEnabled != preferenceSync.isEnabled else { return }
             preferenceSync.setEnabled(iCloudSyncEnabled)
-            Analytics.track(.settingChanged(key: "icloud_sync", value: iCloudSyncEnabled ? "true" : "false"))
         }
     }
 
@@ -511,9 +449,6 @@ class AppState {
         didSet {
             AppDefaults.standard.set(retroMode, forKey: "nostalgex_retro_mode")
             preferenceSync.record(PreferenceSync.retroModeKey, value: retroMode)
-            if oldValue != retroMode {
-                Analytics.track(.settingChanged(key: "retro_mode", value: retroMode ? "true" : "false"))
-            }
         }
     }
 
@@ -525,9 +460,6 @@ class AppState {
         didSet {
             AppDefaults.standard.set(guideTextSize.rawValue, forKey: GuideTextSize.storageKey)
             preferenceSync.record(PreferenceSync.guideTextSizeKey, value: guideTextSize.rawValue)
-            if oldValue != guideTextSize {
-                Analytics.track(.settingChanged(key: "guide_text_size", value: guideTextSize.rawValue))
-            }
         }
     }
 
@@ -540,9 +472,6 @@ class AppState {
     var watershedEnabled: Bool = AppDefaults.standard.object(forKey: Channel.watershedDefaultsKey) as? Bool ?? false {
         didSet {
             AppDefaults.standard.set(watershedEnabled, forKey: Channel.watershedDefaultsKey)
-            if oldValue != watershedEnabled {
-                Analytics.track(.settingChanged(key: "watershed", value: watershedEnabled ? "true" : "false"))
-            }
         }
     }
 
@@ -558,9 +487,6 @@ class AppState {
         didSet {
             AppDefaults.standard.set(showNowPlaying, forKey: Self.showNowPlayingDefaultsKey)
             preferenceSync.record(PreferenceSync.nowPlayingKey, value: showNowPlaying)
-            if oldValue != showNowPlaying {
-                Analytics.track(.settingChanged(key: "show_now_playing", value: showNowPlaying ? "true" : "false"))
-            }
             playbackReportingChoiceChanged()
         }
     }
@@ -568,9 +494,6 @@ class AppState {
         didSet {
             AppDefaults.standard.set(markWatched, forKey: Self.markWatchedDefaultsKey)
             preferenceSync.record(PreferenceSync.markWatchedKey, value: markWatched)
-            if oldValue != markWatched {
-                Analytics.track(.settingChanged(key: "mark_watched", value: markWatched ? "true" : "false"))
-            }
             playbackReportingChoiceChanged()
         }
     }
@@ -614,9 +537,6 @@ class AppState {
             AppDefaults.standard.set(preferredSubtitleLanguageCode, forKey: Self.subtitleLanguageDefaultsKey)
             preferenceSync.record(PreferenceSync.subtitleLanguageKey, value: preferredSubtitleLanguageCode)
             applySubtitleSelection()
-            if oldValue != preferredSubtitleLanguageCode {
-                Analytics.track(.settingChanged(key: "subtitle_language", value: preferredSubtitleLanguageCode))
-            }
         }
     }
 
@@ -626,9 +546,6 @@ class AppState {
         didSet { AppDefaults.standard.set(subtitlesInFullscreenEnabled, forKey: "nostalgex_subtitles_fullscreen")
             preferenceSync.record(PreferenceSync.subtitlesFullscreenKey, value: subtitlesInFullscreenEnabled)
             applySubtitleSelection()
-            if oldValue != subtitlesInFullscreenEnabled {
-                Analytics.track(.settingChanged(key: "subtitles_fullscreen", value: subtitlesInFullscreenEnabled ? "true" : "false"))
-            }
         }
     }
 
@@ -640,9 +557,6 @@ class AppState {
         didSet { AppDefaults.standard.set(autoSubtitlesForForeignAudioEnabled, forKey: "nostalgex_auto_subs_foreign_audio")
             preferenceSync.record(PreferenceSync.autoSubsForeignAudioKey, value: autoSubtitlesForForeignAudioEnabled)
             applySubtitleSelection()
-            if oldValue != autoSubtitlesForForeignAudioEnabled {
-                Analytics.track(.settingChanged(key: "auto_subtitles_foreign_audio", value: autoSubtitlesForForeignAudioEnabled ? "true" : "false"))
-            }
         }
     }
 
@@ -661,9 +575,6 @@ class AppState {
             AppDefaults.standard.set(preferredAudioLanguageCode, forKey: Self.audioLanguageDefaultsKey)
             preferenceSync.record(PreferenceSync.audioLanguageKey, value: preferredAudioLanguageCode)
             applyAudioTrackSelection()
-            if oldValue != preferredAudioLanguageCode {
-                Analytics.track(.settingChanged(key: "audio_language", value: preferredAudioLanguageCode))
-            }
         }
     }
 
@@ -746,8 +657,8 @@ class AppState {
     /// The viewer has pressed RATE at some point (banner or Settings). Drives the
     /// Settings tile's thank-you line; persisted in `RatingNudgeStore`.
     var hasTappedRate: Bool = AppDefaults.standard.bool(forKey: RatingNudgeStore.ratedKey)
-    /// Built when AppState is, which is before RootView's launch analytics writes its
-    /// own marker, so the first-launch read is honest.
+    /// Built when AppState is, before anything else can write the first-launch
+    /// marker, so the first-launch read is honest.
     @ObservationIgnored var ratingNudgeLaunch = RatingNudgePolicy.Launch(
         appVersion: RatingNudgeStore.currentAppVersion,
         isFirstLaunch: RatingNudgeStore().consumeFirstLaunch(),
@@ -764,17 +675,9 @@ class AppState {
         }
     }
 
-    /// Delivery mode for the current playback session. Set on `readyToPlay` inside
-    /// `loadCurrentItem`, cleared when the session ends. Rides on `playback.stopped`
-    /// so watch time can be split by direct play vs transcode.
-    var currentPlaybackDelivery: AnalyticsPlaybackDelivery? = nil
-
     /// Sanitized, attempt-owned data for the in-player information screen.
     var playbackInformation: PlaybackInformation?
 
-    /// Guard so `playback.ready` fires once per session even though the ready path is
-    /// entered again on transcode fallback / retry. Reset in `loadCurrentItem`.
-    var playbackReadyReported: Bool = false
     var player: AVPlayer?
 
     /// Mirrors `player.timeControlStatus == .playing`, kept in sync by KVO in

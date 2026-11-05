@@ -35,11 +35,10 @@ extension AppState {
 
     // MARK: - Channel control
 
-    /// Programmatically tune to a channel. This path is used by automatic re-selection
-    /// (library load, snapshot restore, background refresh, foreground return, demo
-    /// mode, music enrichment, bundle filter) — it does NOT emit `channel.tuned`.
-    /// User-initiated tunes go through `tuneChannelFromUser(_:method:precomputedSchedule:)`,
-    /// which fires the signal with the correct method parameter.
+    /// Tune to a channel. Used by every tune surface: automatic re-selection (library
+    /// load, snapshot restore, background refresh, foreground return, demo mode, music
+    /// enrichment, bundle filter) and user-initiated changes (guide, mini-strip,
+    /// next/previous).
     func selectChannel(_ channel: Channel, precomputedSchedule: ChannelSchedule? = nil) {
         // A channel that stopped after repeated failures gets a fresh run whenever it is
         // chosen again: by the viewer, on foreground return, or after a library reload.
@@ -74,38 +73,18 @@ extension AppState {
         loadCurrentItem()
     }
 
-    /// User-initiated channel change. Emits `channel.tuned` with the calling `method`,
-    /// then delegates to `selectChannel` for the actual work.
-    ///
-    /// One choke point on purpose: the view layer never calls `Analytics.track` for
-    /// tuning, so a new tune surface (e.g. a future voice command) that forgets to
-    /// pass a method here still doesn't accidentally start double-counting.
-    func tuneChannelFromUser(
-        _ channel: Channel,
-        method: AnalyticsTuneMethod,
-        precomputedSchedule: ChannelSchedule? = nil
-    ) {
-        Analytics.track(.channelTuned(
-            channelNumber: channel.number,
-            backend: analyticsBackend,
-            method: method,
-            channel: AnalyticsChannelDescriptor.describe(channel)
-        ))
-        selectChannel(channel, precomputedSchedule: precomputedSchedule)
-    }
-
     func nextChannel() {
         guard let current = currentChannel,
               let idx = channels.firstIndex(where: { $0.id == current.id }),
               channels.count > 1 else { return }
-        tuneChannelFromUser(channels[(idx + 1) % channels.count], method: .next)
+        selectChannel(channels[(idx + 1) % channels.count])
     }
 
     func previousChannel() {
         guard let current = currentChannel,
               let idx = channels.firstIndex(where: { $0.id == current.id }),
               channels.count > 1 else { return }
-        tuneChannelFromUser(channels[(idx - 1 + channels.count) % channels.count], method: .previous)
+        selectChannel(channels[(idx - 1 + channels.count) % channels.count])
     }
 }
 
