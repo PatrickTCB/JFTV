@@ -35,20 +35,20 @@ final class AnalyticsEventTests: XCTestCase {
     }
 
     func testConnectCompletedSerializesServerCount() {
-        let event = AnalyticsEvent.connectCompleted(backend: .plex, serverCount: 3)
+        let event = AnalyticsEvent.connectCompleted(backend: .jellyfin, serverCount: 3)
         XCTAssertEqual(event.name, "connect.completed")
-        XCTAssertEqual(event.parameters, ["backend": "plex", "serverCount": "3"])
+        XCTAssertEqual(event.parameters, ["backend": "jellyfin", "serverCount": "3"])
     }
 
     func testConnectFailedCarriesReason() {
-        let event = AnalyticsEvent.connectFailed(backend: .emby, reason: "emby_unreachable")
-        XCTAssertEqual(event.parameters, ["backend": "emby", "reason": "emby_unreachable"])
+        let event = AnalyticsEvent.connectFailed(backend: .jellyfin, reason: "server_unreachable")
+        XCTAssertEqual(event.parameters, ["backend": "jellyfin", "reason": "server_unreachable"])
     }
 
     func testConnectCancelledAndCodeExpiredNameTheMethod() {
-        let cancelled = AnalyticsEvent.connectCancelled(backend: .plex, method: .pin)
+        let cancelled = AnalyticsEvent.connectCancelled(backend: .jellyfin, method: .password)
         XCTAssertEqual(cancelled.name, "connect.cancelled")
-        XCTAssertEqual(cancelled.parameters["method"], "pin")
+        XCTAssertEqual(cancelled.parameters["method"], "password")
 
         let expired = AnalyticsEvent.connectCodeExpired(backend: .jellyfin, method: .quickConnect)
         XCTAssertEqual(expired.name, "connect.code_expired")
@@ -56,9 +56,9 @@ final class AnalyticsEventTests: XCTestCase {
     }
 
     func testServerPickerConfirmedCarriesCount() {
-        let event = AnalyticsEvent.connectServerPickerConfirmed(backend: .plex, serverCount: 2)
+        let event = AnalyticsEvent.connectServerPickerConfirmed(backend: .jellyfin, serverCount: 2)
         XCTAssertEqual(event.name, "connect.server_picker.confirmed")
-        XCTAssertEqual(event.parameters, ["backend": "plex", "serverCount": "2"])
+        XCTAssertEqual(event.parameters, ["backend": "jellyfin", "serverCount": "2"])
     }
 
     // MARK: - Library
@@ -131,14 +131,14 @@ final class AnalyticsEventTests: XCTestCase {
     func testChannelTunedIncludesMethodAndStaticChannelIdentity() {
         let event = AnalyticsEvent.channelTuned(
             channelNumber: 74,
-            backend: .plex,
+            backend: .jellyfin,
             method: .miniStrip,
             channel: staticDescriptor
         )
         XCTAssertEqual(event.name, "channel.tuned")
         XCTAssertEqual(event.parameters, [
             "channelNumber": "74",
-            "backend": "plex",
+            "backend": "jellyfin",
             "method": "mini_strip",
             "channelType": "static",
             "channelID": "5",
@@ -150,7 +150,7 @@ final class AnalyticsEventTests: XCTestCase {
     func testChannelTunedForCollectionOmitsChannelIDAndChannelName() {
         let event = AnalyticsEvent.channelTuned(
             channelNumber: 300,
-            backend: .plex,
+            backend: .jellyfin,
             method: .guide,
             channel: collectionDescriptor
         )
@@ -164,7 +164,7 @@ final class AnalyticsEventTests: XCTestCase {
 
     func testPlaybackReadyDistinguishesDeliveryModeAndCarriesChannel() {
         let direct = AnalyticsEvent.playbackReady(
-            channelNumber: 11, backend: .plex, delivery: .directPlay, channel: staticDescriptor
+            channelNumber: 11, backend: .jellyfin, delivery: .directPlay, channel: staticDescriptor
         )
         XCTAssertEqual(direct.name, "playback.ready")
         XCTAssertEqual(direct.parameters["delivery"], "direct_play")
@@ -183,7 +183,7 @@ final class AnalyticsEventTests: XCTestCase {
     func testPlaybackStoppedSendsWatchSecondsAsFloatNotParameter() {
         let event = AnalyticsEvent.playbackStopped(
             channelNumber: 42,
-            backend: .plex,
+            backend: .jellyfin,
             delivery: .directPlay,
             channel: staticDescriptor,
             activeWatchSeconds: 137.5
@@ -195,7 +195,7 @@ final class AnalyticsEventTests: XCTestCase {
         XCTAssertNil(event.parameters["activeWatchSeconds"])
         XCTAssertEqual(event.parameters, [
             "channelNumber": "42",
-            "backend": "plex",
+            "backend": "jellyfin",
             "delivery": "direct_play",
             "channelType": "static",
             "channelID": "5",
@@ -213,16 +213,16 @@ final class AnalyticsEventTests: XCTestCase {
             (.stalled, "stalled"),
         ]
         for (code, wire) in events {
-            let event = AnalyticsEvent.playbackError(channelNumber: 5, backend: .emby, code: code)
+            let event = AnalyticsEvent.playbackError(channelNumber: 5, backend: .jellyfin, code: code)
             XCTAssertEqual(event.name, "playback.error")
             XCTAssertEqual(event.parameters["code"], wire, "unexpected wire value for \(code)")
         }
     }
 
     func testTranscodeFallbackCarriesChannelAndBackend() {
-        let event = AnalyticsEvent.playbackTranscodeFallback(channelNumber: 9, backend: .plex)
+        let event = AnalyticsEvent.playbackTranscodeFallback(channelNumber: 9, backend: .jellyfin)
         XCTAssertEqual(event.name, "playback.transcode_fallback")
-        XCTAssertEqual(event.parameters, ["channelNumber": "9", "backend": "plex"])
+        XCTAssertEqual(event.parameters, ["channelNumber": "9", "backend": "jellyfin"])
     }
 
     // MARK: - Settings and UX
@@ -241,9 +241,7 @@ final class AnalyticsEventTests: XCTestCase {
     // MARK: - Vocabulary safety
 
     func testBackendRawValueIsStableWire() {
-        XCTAssertEqual(AnalyticsBackend.plex.rawValue, "plex")
         XCTAssertEqual(AnalyticsBackend.jellyfin.rawValue, "jellyfin")
-        XCTAssertEqual(AnalyticsBackend.emby.rawValue, "emby")
         XCTAssertEqual(AnalyticsBackend.demo.rawValue, "demo")
     }
 
@@ -260,15 +258,15 @@ final class AnalyticsEventTests: XCTestCase {
         // Guard rail: nothing else in the catalog should quietly start using the
         // floatValue channel. It is reserved for accumulated durations.
         XCTAssertNil(AnalyticsEvent.launch(kind: .first).floatValue)
-        XCTAssertNil(AnalyticsEvent.connectStarted(backend: .plex, method: .pin).floatValue)
+        XCTAssertNil(AnalyticsEvent.connectStarted(backend: .jellyfin, method: .quickConnect).floatValue)
         XCTAssertNil(AnalyticsEvent.libraryLoadCompleted(
             channelCount: 1, itemCount: 1, background: false, durationMs: 1, partial: false
         ).floatValue)
         XCTAssertNil(AnalyticsEvent.playbackReady(
-            channelNumber: 1, backend: .plex, delivery: .directPlay, channel: staticDescriptor
+            channelNumber: 1, backend: .jellyfin, delivery: .directPlay, channel: staticDescriptor
         ).floatValue)
         XCTAssertEqual(AnalyticsEvent.playbackStopped(
-            channelNumber: 1, backend: .plex, delivery: .directPlay,
+            channelNumber: 1, backend: .jellyfin, delivery: .directPlay,
             channel: staticDescriptor, activeWatchSeconds: 42
         ).floatValue, 42)
         XCTAssertEqual(AnalyticsEvent.sessionEnded(activeSeconds: 900).floatValue, 900)

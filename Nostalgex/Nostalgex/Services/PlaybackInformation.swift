@@ -4,7 +4,7 @@ import Foundation
 /// names. It never stores a media item, URL, server identity, session id or error text.
 struct PlaybackInformation: Equatable {
     enum Backend: String, Equatable {
-        case plex = "Plex", jellyfin = "Jellyfin", emby = "Emby", demo = "Demo"
+        case jellyfin = "Jellyfin", demo = "Demo"
     }
 
     enum Delivery: Equatable {

@@ -42,9 +42,9 @@ extension AppState {
         serverURL = Self.normalizePlexServerURL(credentialStore.load(key: "plex_server_url") ?? "")
         token = credentialStore.load(key: "plex_token") ?? ""
 
-        // Backend selection (defaults to Plex for existing installs).
+        // Backend selection.
         backendKind = credentialStore.load(key: Self.backendKindKey)
-            .flatMap(MediaBackendKind.init(rawValue:)) ?? .plex
+            .flatMap(MediaBackendKind.init(rawValue:)) ?? .jellyfin
         jellyfinUserId = credentialStore.load(key: Self.jellyfinUserIdKey) ?? ""
 
         // One-time migration: re-save credentials under AfterFirstUnlock (was ThisDeviceOnly,
@@ -193,16 +193,6 @@ extension AppState {
         }
     }
 
-    /// Login picker confirmed: lock in the chosen servers, then let library selection
-    /// decide whether to show its own screen before scanning.
-    func confirmServerSelection(_ servers: [ServerRef]) {
-        guard !servers.isEmpty else { return }
-        Analytics.track(.connectServerPickerConfirmed(backend: .plex, serverCount: servers.count))
-        completePlexSignIn(token: token, servers: servers)
-        needsServerSelection = false
-        Task { await presentLibrarySelectionOrScan() }
-    }
-
     // MARK: - Library selection (I-054)
 
     /// Step 3 of sign-in: after servers are chosen, read every section across them and
@@ -270,16 +260,6 @@ extension AppState {
         Task { await loadLibrary() }
     }
 
-    /// The one place a Plex sign-in is committed. Selecting servers used to be the only
-    /// step, which persisted the server list but never the account token, so every sign-in
-    /// made after May 2026 lived only in memory and vanished on relaunch.
-    func completePlexSignIn(token authToken: String, servers: [ServerRef]) {
-        token = authToken
-        backendKind = .plex
-        setSelectedServers(servers)
-        saveCredentials()
-    }
-
     /// Include/exclude a server from Settings, then rescan. Won't remove the last server.
     func toggleServer(_ server: ServerRef) {
         let wasIncluded = selectedServers.contains(where: { $0.machineIdentifier == server.machineIdentifier })
@@ -294,17 +274,6 @@ extension AppState {
         Analytics.track(.settingChanged(key: "server", value: wasIncluded ? "false" : "true"))
         LibrarySnapshotStore.clear()
         Task { await loadLibrary() }
-    }
-
-    /// Re-query plex.tv for reachable servers so Settings can show servers the user
-    /// previously deselected (and pick up newly added ones).
-    func refreshAvailableServers() async {
-        guard !token.isEmpty else { return }
-        if let result = try? await PlexAPIService.discoverServers(token: token) {
-            availableServers = result.reachable.map {
-                ServerRef(machineIdentifier: $0.machineIdentifier, name: $0.name, baseURL: $0.bestReachableURI, owned: $0.owned, token: $0.token)
-            }
-        }
     }
 
     // MARK: - Library selection, Settings (I-054)
@@ -422,7 +391,7 @@ extension AppState {
         serverName = ""
         selectedServers = []
         availableServers = []
-        backendKind = .plex
+        backendKind = .jellyfin
         jellyfinUserId = ""
         LibrarySnapshotStore.clear()
         // Any library scan still running was started for the sign-in that just ended. It
@@ -430,42 +399,16 @@ extension AppState {
         invalidateInFlightLibraryLoads()
     }
 
-    /// A Plex token alone is a sign-in: servers are rediscovered from plex.tv whenever the
-    /// saved list is missing. Jellyfin and Emby tokens are per-server, so they need the URL.
+    /// Jellyfin tokens are per-server, so a sign-in needs the URL.
     var hasCredentials: Bool {
         if isDemoMode { return true }
         guard !token.isEmpty else { return false }
-        return backendKind == .plex || !selectedServers.isEmpty || !serverURL.isEmpty
-    }
-
-    /// Rebuilds the server list from plex.tv when the saved one is gone. Returns false when
-    /// nothing reachable was found; the sign-in is kept either way.
-    func recoverPlexServersIfNeeded() async -> Bool {
-        guard backendKind == .plex, !token.isEmpty, selectedServers.isEmpty else { return true }
-        print("[Plex90] AUTH: saved server list missing, rediscovering from plex.tv")
-        do {
-            let result = try await PlexAPIService.discoverServers(token: token)
-            let servers = result.reachable.map {
-                ServerRef(machineIdentifier: $0.machineIdentifier, name: $0.name, baseURL: $0.bestReachableURI, owned: $0.owned, token: $0.token)
-            }
-            guard !servers.isEmpty else {
-                errorMessage = result.totalServers == 0
-                    ? "Signed in, but no Plex Media Server was found on your account."
-                    : "Signed in, but couldn't reach your Plex server from this network (\(result.totalServers) found, none reachable). Make sure it's running, then Retry."
-                return false
-            }
-            setSelectedServers(servers)
-            saveCredentials()
-            return true
-        } catch {
-            errorMessage = "Signed in, but couldn't reach plex.tv to find your servers. Check your connection and Retry."
-            return false
-        }
+        return !selectedServers.isEmpty || !serverURL.isEmpty
     }
 
     /// Activates a static demo experience: bundled sample channels, no network calls.
     /// Used as an App Store review fallback so reviewers can evaluate the UI even when
-    /// they can't (or won't) connect to a real Plex Media Server.
+    /// they can't (or won't) connect to a real Jellyfin server.
     func enterDemoMode() {
         // Wipe any half-finished auth state
         cancelPINAuth()
@@ -507,9 +450,9 @@ extension AppState {
             serverName = name
             isConnected = true
             saveCredentials()
-        } catch let api as PlexAPIService.APIError {
+        } catch let api as MediaServerKit.APIError {
             isConnected = false
-            errorMessage = Self.userFacingPlexAPIServiceError(api, justAuthenticated: justAuthenticated, backend: backendKind)
+            errorMessage = Self.userFacingServerError(api, justAuthenticated: justAuthenticated, backend: backendKind)
             lastFailureDiagnostic = diagnosticString(for: api)
         } catch {
             isConnected = false
@@ -522,14 +465,12 @@ extension AppState {
     static let lastSignOutNoticeKey = "nostalgex_last_signout_notice"
 
     /// A 401 during a library load never costs the user their sign-in. Relay tunnels,
-    /// reverse proxies, servers coming out of sleep, and plex.tv hiccups all answer 401 for
-    /// a healthy token, and every automatic sign-out this app ever shipped was eventually
-    /// traced to one of those. The token stays; the message says what we know, and the
-    /// user can Disconnect from Settings if they want a fresh start.
+    /// reverse proxies and servers coming out of sleep all answer 401 for a healthy
+    /// token, and every automatic sign-out this app ever shipped was eventually traced
+    /// to one of those. The token stays; the message says what we know, and the user can
+    /// Disconnect from Settings if they want a fresh start.
     func resolveUnauthorizedLoadFailure() async {
-        let validity: TokenValidity = backendKind == .plex
-            ? await PlexAPIService.validateAccountToken(token)
-            : .unknown
+        let validity: TokenValidity = .unknown
         print("[Plex90] AUTH: 401 on library load, token \(validity), session kept")
         errorMessage = Self.unauthorizedLoadMessage(tokenValidity: validity, backend: backendKind)
         lastFailureDiagnostic = "\(lastFailureDiagnostic ?? "401") · token \(validity) · session kept"
@@ -538,61 +479,39 @@ extension AppState {
     static func unauthorizedLoadMessage(tokenValidity: TokenValidity, backend: MediaBackendKind) -> String {
         switch tokenValidity {
         case .valid:
-            return "Your Plex account is still signed in, but the server refused the request. It may still be waking up, or a proxy in front of it returned 401. Try again in a moment."
+            return "Your sign-in is still valid, but the server refused the request. It may still be waking up, or a proxy in front of it returned 401. Try again in a moment."
         case .invalid:
-            return "Plex reports this sign-in is no longer valid. Your saved sign-in was kept. To start fresh, open Settings, choose Disconnect, then connect again."
+            return "The server reports this sign-in is no longer valid. Your saved sign-in was kept. To start fresh, open Settings, choose Disconnect, then connect again."
         case .unknown:
-            return backend == .plex
-                ? "Your server refused the request and plex.tv couldn't be reached to confirm your sign-in. Your sign-in has been kept. Try again once the server is awake and online."
-                : "Your server refused the request. Your sign-in has been kept. Try again once the server is awake and online; if it keeps happening, open Settings and choose Disconnect, then sign in again."
+            return "Your server refused the request. Your sign-in has been kept. Try again once the server is awake and online; if it keeps happening, open Settings and choose Disconnect, then sign in again."
         }
     }
 
     /// Maps client errors surfaced during library loads and connection checks.
     ///
-    /// `PlexAPIService.APIError` is the shared error type for all three backends, so the
-    /// copy has to be told which server the user actually connected to. Without `backend`
-    /// an Emby user whose scan 404s is told to check Plex's Remote Access setting, which
-    /// sends them looking at the wrong server (reported 2026-10-08 during the #6 triage).
-    ///
     /// `justAuthenticated=true` means we're seeing this error on the first library load
     /// after a fresh sign-in. In that case `.unauthorized` is NOT a session expiry —
-    /// it almost always means the account lacks library access on the discovered server.
-    /// The reworded message keeps reviewers (and users) from being told their session
+    /// it almost always means the account lacks library access on the server. The
+    /// reworded message keeps reviewers (and users) from being told their session
     /// expired on the very screen they just signed in from.
-    static func userFacingPlexAPIServiceError(
-        _ error: PlexAPIService.APIError,
+    static func userFacingServerError(
+        _ error: MediaServerKit.APIError,
         justAuthenticated: Bool = false,
-        backend: MediaBackendKind = .plex
+        backend: MediaBackendKind = .jellyfin
     ) -> String {
         let server = backend.displayName
         switch error {
         case .unauthorized:
             if justAuthenticated {
-                switch backend {
-                case .plex:
-                    return "Signed in, but this account can't access libraries on the discovered Plex server. Open Plex (Settings → Users & Sharing) and confirm this user has library access, then try again."
-                case .jellyfin, .emby:
-                    return "Signed in, but this account can't access any libraries on your \(server) server. Open the \(server) dashboard, find this user, and confirm they have access to at least one library, then try again."
-                }
+                return "Signed in, but this account can't access any libraries on your \(server) server. Open the \(server) dashboard, find this user, and confirm they have access to at least one library, then try again."
             }
             return "Session expired. Please reconnect in Settings."
         case .invalidResponse:
             return "Invalid reply from \(server). Disconnect and reconnect in Settings."
         case .noReachableServer:
-            switch backend {
-            case .plex:
-                return "Signed in, but no Plex server was reachable. Confirm Plex is running and Remote Access is enabled, then try again."
-            case .jellyfin, .emby:
-                return "Signed in, but your \(server) server stopped answering. Confirm it is running and reachable at the address you entered, then try again."
-            }
+            return "Signed in, but your \(server) server stopped answering. Confirm it is running and reachable at the address you entered, then try again."
         case .httpFailure(let code):
-            switch backend {
-            case .plex:
-                return "Plex (or your network path) returned HTTP \(code). If you use a reverse proxy or custom domain, confirm it proxies /library and /identity without injecting a login page. Then reconnect."
-            case .jellyfin, .emby:
-                return "\(server) (or your network path) returned HTTP \(code). If you use a reverse proxy or custom domain, confirm it passes the \(server) API through without injecting a login page. Check that the address includes the right port, then reconnect."
-            }
+            return "\(server) (or your network path) returned HTTP \(code). If you use a reverse proxy or custom domain, confirm it passes the \(server) API through without injecting a login page. Check that the address includes the right port, then reconnect."
         case .receivedMarkupInsteadOfJSON:
             return "This \(server) URL returned a web page instead of the data the app expects. That usually means a proxy, a captive portal, or the wrong hostname or port. Disconnect in Settings, sign in again, or open \(server) using the server's LAN address."
         }
@@ -600,7 +519,7 @@ extension AppState {
 
     /// Short, monospaced diagnostic for the failure screen. Server URL + HTTP code or short
     /// reason. Designed to be readable in a rejection screenshot so we can debug remotely.
-    func diagnosticString(for error: PlexAPIService.APIError) -> String {
+    func diagnosticString(for error: MediaServerKit.APIError) -> String {
         let host = URL(string: serverURL)?.host ?? (serverURL.isEmpty ? "no server" : serverURL)
         switch error {
         case .unauthorized:                       return "\(host) · 401 unauthorized"
@@ -611,9 +530,9 @@ extension AppState {
         }
     }
 
-    static func userFacingLoadLibraryError(_ error: Error, backend: MediaBackendKind = .plex) -> String {
-        if let apiErr = error as? PlexAPIService.APIError {
-            return userFacingPlexAPIServiceError(apiErr, backend: backend)
+    static func userFacingLoadLibraryError(_ error: Error, backend: MediaBackendKind = .jellyfin) -> String {
+        if let apiErr = error as? MediaServerKit.APIError {
+            return userFacingServerError(apiErr, backend: backend)
         }
         if let stalled = error as? LibraryLoadStalled {
             // Nothing usable came back, so there is no guide to fall back on. Say what
@@ -644,86 +563,11 @@ extension AppState {
         return "Failed to load library. Check that your server is running and reachable."
     }
 
-    // MARK: - PIN Auth
-
-    func startPINAuth() {
-        if isUITestInstantAuth {
-            authError = nil
-            isAuthInProgress = true
-            pinCode = "TEST"
-            pinID = 1
-
-            // Simulate an immediate successful auth.
-            token = "TEST_TOKEN"
-            serverURL = "https://example.com"
-            saveCredentials()
-            isAuthInProgress = false
-            pinCode = ""
-
-            Task { await loadLibrary() }
-            return
-        }
-
-        pinPollTask?.cancel()
-        authError = nil
-        isAuthInProgress = true
-        pinCode = ""
-        currentAuthAttempt = (.plex, .pin)
-        Analytics.track(.connectStarted(backend: .plex, method: .pin))
-        pinPollTask = Task {
-            // An Apple TV that just woke up can have no route yet; that fails instantly
-            // rather than timing out, so a single attempt flashed the PIN screen and bounced
-            // the user straight to an error. Retry transient failures before giving up.
-            var lastError: Error?
-            for attempt in 0 ..< Self.pinRequestAttempts {
-                do {
-                    let (id, code) = try await PlexAPIService.requestPIN()
-                    guard !Task.isCancelled else { return }
-                    pinID = id
-                    pinCode = code
-                    startPolling()
-                    return
-                } catch {
-                    guard !Task.isCancelled else { return }
-                    lastError = error
-                    print("[Plex90] AUTH: PIN request attempt \(attempt + 1) failed: \(error)")
-                    guard Self.isTransientPINRequestError(error), attempt < Self.pinRequestAttempts - 1 else { break }
-                    try? await Task.sleep(for: .seconds(attempt + 1))
-                    guard !Task.isCancelled else { return }
-                }
-            }
-            isAuthInProgress = false
-            currentAuthAttempt = nil
-            Analytics.track(.connectFailed(backend: .plex, reason: "pin_request_failed"))
-            authError = Self.pinRequestFailureMessage(lastError)
-        }
-    }
-
-    static let pinRequestAttempts = 4
-
-    /// Shown on the picker when a Plex code runs out (5 minutes). The picker is where the
-    /// viewer lands, so the line names the button that gets a new code.
-    static let plexCodeExpiredMessage = "The code expired. Press CONNECT TO PLEX for a new one."
+    // MARK: - Auth messages
 
     /// Shown on the Jellyfin password screen when a Quick Connect code runs out. That screen
     /// has USE QUICK CONNECT and the password fields, so the line names both.
     static let quickConnectCodeExpiredMessage = "The code expired. Press USE QUICK CONNECT for a new one, or sign in with your password."
-
-    static func isTransientPINRequestError(_ error: Error) -> Bool {
-        if let api = error as? PlexAPIService.APIError {
-            if case .httpFailure(let code) = api { return (500...599).contains(code) }
-            return false
-        }
-        guard let urlError = error as? URLError else { return false }
-        switch urlError.code {
-        case .notConnectedToInternet, .networkConnectionLost, .timedOut,
-             .cannotFindHost, .cannotConnectToHost, .dnsLookupFailed,
-             .internationalRoamingOff, .dataNotAllowed, .secureConnectionFailed:
-            return true
-        default:
-            return false
-        }
-    }
 
     /// "Could not reach" hid every cause behind one line. The one that cost a user days:
     /// tvOS refusing a plain http:// URL outside the private LAN ranges (a Tailscale or
@@ -736,7 +580,7 @@ extension AppState {
             case .cannotFindHost, .dnsLookupFailed:
                 return "Could not find that host. Check the address."
             case .cannotConnectToHost:
-                return "Nothing answered at that address and port. Check the port (Jellyfin and Emby default to 8096)."
+                return "Nothing answered at that address and port. Check the port (Jellyfin defaults to 8096)."
             case .timedOut:
                 return "The \(backend) server took too long to answer. Check the address, or that the Apple TV can reach it."
             case .notConnectedToInternet, .networkConnectionLost:
@@ -748,26 +592,6 @@ extension AppState {
             }
         }
         return "Could not reach the \(backend) server. Check the address."
-    }
-
-    static func pinRequestFailureMessage(_ error: Error?) -> String {
-        if let api = error as? PlexAPIService.APIError, case .httpFailure(let code) = api {
-            if code == 429 {
-                return "plex.tv is rate-limiting sign-in requests from this device. Wait a minute, then press CONNECT TO PLEX again."
-            }
-            return "plex.tv returned an error (HTTP \(code)). Try again in a moment."
-        }
-        if let urlError = error as? URLError {
-            switch urlError.code {
-            case .notConnectedToInternet, .networkConnectionLost:
-                return "No internet connection. Check the Apple TV's Wi‑Fi or Ethernet, then press CONNECT TO PLEX again."
-            case .timedOut:
-                return "plex.tv took too long to respond. Check your connection, then press CONNECT TO PLEX again."
-            default:
-                return "Could not reach plex.tv (error \(urlError.code.rawValue)). Check your connection, then press CONNECT TO PLEX again."
-            }
-        }
-        return "Could not reach plex.tv. Check your connection, then press CONNECT TO PLEX again."
     }
 
     func cancelPINAuth() {
@@ -782,10 +606,7 @@ extension AppState {
         pinPollTask?.cancel()
         pinPollTask = nil
         isAuthInProgress = false
-        pinCode = ""
-        pinID = 0
         jellyfinQuickConnectCode = ""
-        isDiscoveringServers = false
         authError = nil
     }
 
@@ -849,81 +670,6 @@ extension AppState {
         Analytics.setDemoMode(false)
     }
 
-    private func startPolling() {
-        let id = pinID
-        var attempts = 0
-        pinPollTask = Task {
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(2))
-                guard !Task.isCancelled else { break }
-                attempts += 1
-                if attempts > 150 {
-                    Analytics.track(.connectCodeExpired(backend: .plex, method: .pin))
-                    authError = Self.plexCodeExpiredMessage
-                    isAuthInProgress = false
-                    currentAuthAttempt = nil
-                    break
-                }
-                do {
-                    if let authToken = try await PlexAPIService.checkPIN(id: id) {
-                        isDiscoveringServers = true
-                        do {
-                            let result = try await PlexAPIService.discoverServers(token: authToken)
-                            isDiscoveringServers = false
-                            availableServers = result.reachable.map {
-                                ServerRef(machineIdentifier: $0.machineIdentifier, name: $0.name, baseURL: $0.bestReachableURI, owned: $0.owned, token: $0.token)
-                            }
-
-                            guard !availableServers.isEmpty else {
-                                // Differentiate "no server on the account" from "server(s)
-                                // exist but none reachable" — very different fixes for the user.
-                                let n = result.totalServers
-                                if n == 0 {
-                                    authError = "Signed in, but no Plex Media Server was found on your account. Set up Plex on a computer or NAS (with media), make sure it's running, then try again."
-                                } else if result.ownedServers == 0 {
-                                    // Shared-only user: they don't own the server, so "enable
-                                    // Remote Access" is the wrong advice — only the owner can.
-                                    authError = "Signed in, but the shared library you have access to isn't reachable right now (\(n) found, none reachable). Ask the server's owner to confirm it's online and Remote Access is on, then try again."
-                                } else {
-                                    authError = "Signed in, but couldn't reach your Plex server from this network (\(n) found, none reachable). Make sure the server is running and Remote Access is enabled, then try again."
-                                }
-                                Analytics.track(.connectFailed(backend: .plex, reason: "no_reachable_server"))
-                                isAuthInProgress = false
-                                currentAuthAttempt = nil
-                                break
-                            }
-
-                            isAuthInProgress = false
-                            currentAuthAttempt = nil
-                            pinCode = ""
-                            justAuthenticated = true
-                            lastFailureDiagnostic = nil
-                            Analytics.track(.connectCompleted(backend: .plex, serverCount: availableServers.count))
-                            if availableServers.count == 1 {
-                                completePlexSignIn(token: authToken, servers: availableServers)
-                                await presentLibrarySelectionOrScan()
-                            } else {
-                                // Held in memory until the picker confirms; the token is
-                                // persisted together with the chosen servers.
-                                token = authToken
-                                needsServerSelection = true
-                            }
-                        } catch {
-                            isDiscoveringServers = false
-                            Analytics.track(.connectFailed(backend: .plex, reason: "server_discovery_failed"))
-                            authError = "Signed in, but couldn't reach plex.tv to find your servers. Check your connection and try again."
-                            isAuthInProgress = false
-                            currentAuthAttempt = nil
-                        }
-                        break
-                    }
-                } catch {
-                    // Network error — keep polling
-                }
-            }
-        }
-    }
-
     // MARK: - Jellyfin Auth
 
     /// Username/password login against a Jellyfin server URL. On success switches the
@@ -945,7 +691,7 @@ extension AppState {
                 }
                 guard !Task.isCancelled else { return }
                 await completeJellyfinAuth(serverURL: url, result: result)
-            } catch let api as PlexAPIService.APIError {
+            } catch let api as MediaServerKit.APIError {
                 guard !Task.isCancelled else { return }
                 isAuthInProgress = false
                 currentAuthAttempt = nil
@@ -1040,70 +786,7 @@ extension AppState {
         await presentLibrarySelectionOrScan()
     }
 
-    // MARK: - Emby Auth
-
-    /// Username/password login against an Emby server URL.
-    func authenticateEmby(serverURL rawURL: String, username: String, password: String) {
-        let url = Self.normalizeJellyfinServerURL(rawURL)
-        guard !url.isEmpty else { authError = "Enter your Emby server URL."; return }
-        guard !username.isEmpty else { authError = "Enter your Emby username."; return }
-
-        pinPollTask?.cancel()
-        authError = nil
-        isAuthInProgress = true
-        currentAuthAttempt = (.emby, .password)
-        Analytics.track(.connectStarted(backend: .emby, method: .password))
-        pinPollTask = Task {
-            do {
-                let (url, result) = try await Self.tryServerCandidates(rawURL) {
-                    try await EmbyAPIService.authenticate(serverURL: $0, username: username, password: password)
-                }
-                guard !Task.isCancelled else { return }
-                await completeEmbyAuth(serverURL: url, result: result)
-            } catch let api as PlexAPIService.APIError {
-                guard !Task.isCancelled else { return }
-                isAuthInProgress = false
-                currentAuthAttempt = nil
-                Analytics.track(.connectFailed(backend: .emby, reason: "emby_auth_failed"))
-                authError = api == .unauthorized
-                    ? "Incorrect username or password."
-                    : "Could not reach the Emby server. Check the address."
-            } catch {
-                guard !Task.isCancelled else { return }
-                isAuthInProgress = false
-                currentAuthAttempt = nil
-                Analytics.track(.connectFailed(backend: .emby, reason: "emby_unreachable"))
-                authError = Self.serverUnreachableMessage(error, backend: "Emby")
-            }
-        }
-    }
-
-    /// The one place an Emby sign-in is committed. Internal (not private) so the backend
-    /// switch test can run the real commit path with a canned auth result.
-    func completeEmbyAuth(serverURL url: String, result: EmbyAPIService.AuthResult) async {
-        backendKind = .emby
-        token = result.accessToken
-        jellyfinUserId = result.userId
-        serverURL = url
-        serverName = result.serverName
-
-        let machineID = result.serverID.isEmpty ? url : result.serverID
-        let ref = ServerRef(machineIdentifier: machineID, name: result.serverName,
-                            baseURL: url, owned: true, token: result.accessToken, userId: result.userId)
-        availableServers = [ref]
-
-        isAuthInProgress = false
-        currentAuthAttempt = nil
-        justAuthenticated = true
-        lastFailureDiagnostic = nil
-        Analytics.track(.connectCompleted(backend: .emby, serverCount: 1))
-
-        setSelectedServers([ref])
-        saveCredentials()
-        await presentLibrarySelectionOrScan()
-    }
-
-    /// Cleans up a typed Jellyfin / Emby address (see `ServerURLNormalizer`). Only used to
+    /// Cleans up a typed Jellyfin address (see `ServerURLNormalizer`). Only used to
     /// check that something usable was typed; sign-in itself tries every candidate.
     static func normalizeJellyfinServerURL(_ raw: String) -> String {
         ServerURLNormalizer.normalize(raw)
@@ -1115,7 +798,7 @@ extension AppState {
     /// a 404, or a web page); a wrong password or a timeout is a real answer and stops.
     static func tryServerCandidates<T>(_ raw: String, _ operation: (String) async throws -> T) async throws -> (url: String, value: T) {
         let candidates = ServerURLNormalizer.candidates(raw)
-        guard !candidates.isEmpty else { throw PlexAPIService.APIError.invalidResponse }
+        guard !candidates.isEmpty else { throw MediaServerKit.APIError.invalidResponse }
         for (index, url) in candidates.enumerated() {
             do {
                 return (url, try await operation(url))
@@ -1123,7 +806,7 @@ extension AppState {
                 guard index < candidates.count - 1, isWrongPlaceError(error) else { throw error }
             }
         }
-        throw PlexAPIService.APIError.invalidResponse
+        throw MediaServerKit.APIError.invalidResponse
     }
 
     /// Quick Connect failing to start was one message for two different problems, and the
@@ -1131,7 +814,7 @@ extension AppState {
     /// Jellyfin answers 401 when Quick Connect is switched off.
     static func quickConnectFailureMessage(_ error: Error) -> String {
         if error is URLError { return serverUnreachableMessage(error, backend: "Jellyfin") }
-        switch error as? PlexAPIService.APIError {
+        switch error as? MediaServerKit.APIError {
         case .unauthorized?:
             return "Quick Connect is off on this server. Turn it on in Jellyfin (Dashboard, then General), or sign in with your password."
         case .httpFailure(statusCode: 404)?, .receivedMarkupInsteadOfJSON?:
@@ -1143,7 +826,7 @@ extension AppState {
 
     static func isWrongPlaceError(_ error: Error) -> Bool {
         if let urlError = error as? URLError { return urlError.code == .cannotConnectToHost }
-        switch error as? PlexAPIService.APIError {
+        switch error as? MediaServerKit.APIError {
         case .httpFailure(statusCode: 404)?, .receivedMarkupInsteadOfJSON?: return true
         default: return false
         }

@@ -12,7 +12,7 @@ final class CollectionShowsTests: XCTestCase {
 
     private func film(_ key: String, _ title: String, server: String? = nil) -> PlexMediaItem {
         PlexMediaItem(
-            id: PlexAPIService.compositeID(serverID: server ?? "", ratingKey: key), title: title,
+            id: MediaServerKit.compositeID(serverID: server ?? "", ratingKey: key), title: title,
             artist: nil, episodeTitle: nil, seTag: nil, summary: "", year: 2000,
             originallyAvailableAt: nil, contentRating: "PG-13", duration: 100, ratingKey: key,
             partKey: nil, container: "mp4", videoCodec: "h264", audioCodec: "aac", videoProfile: nil,
@@ -25,7 +25,7 @@ final class CollectionShowsTests: XCTestCase {
     private func episode(_ key: String, show: String, showKey: String?, season: Int, number: Int,
                          server: String? = nil, minutes: Int = 22) -> PlexMediaItem {
         var item = PlexMediaItem(
-            id: PlexAPIService.compositeID(serverID: server ?? "", ratingKey: key), title: show,
+            id: MediaServerKit.compositeID(serverID: server ?? "", ratingKey: key), title: show,
             artist: nil, episodeTitle: "\(show) \(season)x\(number)",
             seTag: String(format: "S%02dE%02d", season, number), summary: "", year: 2001,
             originallyAvailableAt: nil, contentRating: "TV-PG", duration: minutes, ratingKey: key,

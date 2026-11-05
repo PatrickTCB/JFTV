@@ -570,8 +570,6 @@ struct LanguagePickerSheet: View {
 
 struct StreamQualityPickerSheet: View {
     let selected: StreamQuality
-    let allowsOriginal: Bool
-    @AppStorage(LocalPlexOriginalQuality.storageKey, store: AppDefaults.standard) private var localOriginalVideo = false
     let onSelect: (StreamQuality) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -600,27 +598,9 @@ struct StreamQualityPickerSheet: View {
 
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(spacing: 6) {
-                        if allowsOriginal {
-                            Button {
-                                localOriginalVideo.toggle()
-                                dismiss()
-                            } label: {
-                                VStack(alignment: .leading, spacing: 6) {
-                                    Text(localOriginalVideo ? "Original (local Plex) · ACTIVE" : "Original (local Plex)")
-                                        .font(.custom("DMMono-Medium", size: 22))
-                                    Text(LocalPlexOriginalQuality.detail)
-                                        .font(.custom("DMMono-Regular", size: 20))
-                                        .fixedSize(horizontal: false, vertical: true)
-                                }
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(18)
-                            }
-                            .focused($focusedID, equals: "local-original")
-                        }
                         ForEach(StreamQuality.allCases) { quality in
                             let isSel = selected == quality
                             Button {
-                                localOriginalVideo = false
                                 onSelect(quality)
                                 dismiss()
                             } label: {

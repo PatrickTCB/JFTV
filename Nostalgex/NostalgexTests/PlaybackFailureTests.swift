@@ -9,7 +9,7 @@ import XCTest
 /// is the problem.
 final class PlaybackFailureTests: XCTestCase {
 
-    private func classify(_ backend: MediaBackendKind = .emby,
+    private func classify(_ backend: MediaBackendKind = .jellyfin,
                           _ build: (inout PlaybackFailure.Evidence) -> Void) -> PlaybackFailure {
         var e = PlaybackFailure.Evidence()
         build(&e)
@@ -21,7 +21,7 @@ final class PlaybackFailureTests: XCTestCase {
     /// same server ran at 3x real time.
     func testAServerThatAnswers500IsReportedAsTheServerNotTheFile() {
         let f = classify { $0.httpStatuses = [500]; $0.coreMediaStatuses = [-12889] }
-        XCTAssertEqual(f, .serverRefused(server: "Emby", status: 500))
+        XCTAssertEqual(f, .serverRefused(server: "Jellyfin", status: 500))
         XCTAssertTrue(f.isServerSide)
         XCTAssertTrue(f.detail.contains("HTTP 500"))
         XCTAssertTrue(f.detail.lowercased().contains("not this file"),
@@ -65,7 +65,7 @@ final class PlaybackFailureTests: XCTestCase {
             $0.sourceCodec = "hevc"
             $0.serverDeliveredBytes = true
         }
-        XCTAssertEqual(f, .serverTooSlow(server: "Emby"))
+        XCTAssertEqual(f, .serverTooSlow(server: "Jellyfin"))
         XCTAssertFalse(f.detail.lowercased().contains("apple tv"),
                        "a late stream is not the device's fault")
     }
@@ -93,27 +93,27 @@ final class PlaybackFailureTests: XCTestCase {
             $0.httpStatuses = [500]
             $0.coreMediaStatuses = [-15628]
         }
-        XCTAssertEqual(f, .serverTooSlow(server: "Emby"))
+        XCTAssertEqual(f, .serverTooSlow(server: "Jellyfin"))
         XCTAssertTrue(f.detail.contains("1080p"))
     }
 
     func test404IsAMissingFileNotAGenericRefusal() {
         let f = classify { $0.httpStatuses = [404] }
-        XCTAssertEqual(f, .fileMissing(server: "Emby"))
+        XCTAssertEqual(f, .fileMissing(server: "Jellyfin"))
         XCTAssertTrue(f.detail.lowercased().contains("scan"))
     }
 
     func testAuthFailuresSendThePersonToSettings() {
         for code in [401, 403] {
             let f = classify { $0.httpStatuses = [code] }
-            XCTAssertEqual(f, .notAuthorised(server: "Emby"), "status \(code)")
+            XCTAssertEqual(f, .notAuthorised(server: "Jellyfin"), "status \(code)")
             XCTAssertTrue(f.detail.contains("Settings"))
         }
     }
 
     func testUnreachableBeatsUnknownWhenTheNetworkSaidSo() {
         let f = classify { $0.urlErrorCode = URLError.cannotConnectToHost.rawValue }
-        XCTAssertEqual(f, .serverUnreachable(server: "Emby"))
+        XCTAssertEqual(f, .serverUnreachable(server: "Jellyfin"))
     }
 
     /// `httpStatusCode` is -1 on error-log events that are not HTTP failures. Letting that
@@ -124,9 +124,7 @@ final class PlaybackFailureTests: XCTestCase {
     }
 
     func testTheMessageNamesTheServerTheUserActuallyUses() {
-        for (backend, name) in [(MediaBackendKind.plex, "Plex"),
-                                (.jellyfin, "Jellyfin"),
-                                (.emby, "Emby")] {
+        for (backend, name) in [(MediaBackendKind.jellyfin, "Jellyfin")] {
             let f = classify(backend) { $0.httpStatuses = [500] }
             XCTAssertTrue(f.detail.hasPrefix(name), "\(backend): \(f.detail)")
         }
@@ -135,10 +133,10 @@ final class PlaybackFailureTests: XCTestCase {
     /// Chad's copy rules, which an error screen is no excuse to break.
     func testCopyHasNoEmDashesAndNoEmoji() {
         let all: [PlaybackFailure] = [
-            .serverRefused(server: "Emby", status: 500), .fileMissing(server: "Emby"),
-            .notAuthorised(server: "Emby"), .serverTooSlow(server: "Emby"),
-            .serverUnreachable(server: "Emby"), .deviceCannotRender(codec: "hevc"),
-            .unknown(server: "Emby"),
+            .serverRefused(server: "Jellyfin", status: 500), .fileMissing(server: "Jellyfin"),
+            .notAuthorised(server: "Jellyfin"), .serverTooSlow(server: "Jellyfin"),
+            .serverUnreachable(server: "Jellyfin"), .deviceCannotRender(codec: "hevc"),
+            .unknown(server: "Jellyfin"),
         ]
         for f in all {
             for text in [f.headline, f.detail, f.diagnosticSummary] {

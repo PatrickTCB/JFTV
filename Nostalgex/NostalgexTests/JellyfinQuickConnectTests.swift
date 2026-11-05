@@ -98,7 +98,7 @@ final class JellyfinQuickConnectTests: XCTestCase {
             _ = try await JellyfinAPIService.quickConnectInitiate(serverURL: server, send: recorder.send)
             XCTFail("expected a 404")
         } catch {
-            XCTAssertEqual(error as? PlexAPIService.APIError, .httpFailure(statusCode: 404))
+            XCTAssertEqual(error as? MediaServerKit.APIError, .httpFailure(statusCode: 404))
             XCTAssertTrue(AppState.isWrongPlaceError(error))
         }
         XCTAssertEqual(recorder.methods, ["POST", "GET"])
@@ -112,7 +112,7 @@ final class JellyfinQuickConnectTests: XCTestCase {
             _ = try await JellyfinAPIService.quickConnectInitiate(serverURL: server, send: recorder.send)
             XCTFail("expected unauthorized")
         } catch {
-            XCTAssertEqual(error as? PlexAPIService.APIError, .unauthorized)
+            XCTAssertEqual(error as? MediaServerKit.APIError, .unauthorized)
         }
         XCTAssertEqual(recorder.methods, ["POST"])
     }

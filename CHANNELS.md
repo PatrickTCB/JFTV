@@ -1,7 +1,8 @@
 # Nostalgex Channel Guide
 
-<!-- GENERATED FILE. Do not edit by hand. Run `npm run channels:doc` after any
-     channels.json change. Source: scripts/render-channels-doc.mjs -->
+<!-- Reference documentation for channels.json. The generator that produced this
+     lived in the upstream web tooling and is not part of this fork; treat this
+     file as hand-maintained and keep it in step with channels.json. -->
 
 Quick reference for every channel and bundle. Source of truth: `channels.json`.
 
@@ -25,24 +26,20 @@ Which key does what:
 
 Every table below shows both.
 
-**Pool filter logic must stay aligned across three implementations.**
-`scripts/nostalgex-channel-filter.cjs` (web tuner + devtools) mirrors
-`Nostalgex/Nostalgex/App/AppState+Channels.swift` → `filterItems` (tvOS).
-They do not share code, so a rule change has to land in both or the platforms
-drift. TMDB membership manifest: `channels-memberships.json`.
+**Pool filter logic** lives in `Nostalgex/Nostalgex/App/AppState+Channels.swift` →
+`filterItems`. TMDB membership manifest: `channels-memberships.json`. The golden vectors
+under `scripts/` (e.g. `filter-golden.json`) hold the filter to those rules.
 
-**Schedule ordering must stay aligned too.**
-`scripts/nostalgex-daily-manifest.js` mirrors
-`Nostalgex/Nostalgex/Models/SchedulePoolOrdering.swift` and
-`Nostalgex/Nostalgex/Services/DailyManifestScheduler.swift`, bit-for-bit, so
-web and Apple TV air the same program at the same time.
+**Schedule ordering** lives in `Nostalgex/Nostalgex/Models/SchedulePoolOrdering.swift` and
+`Nostalgex/Nostalgex/Services/DailyManifestScheduler.swift`. The golden vectors
+(`schedule-parity-golden.json`, `schedule-dst-golden.json`) lock the ordering down.
 
 **Keyword matches are ADDITIVE.** They broaden what a channel can pull in; they
 never gate it. Never gate keywords on a broad genre like Drama: it leaks
 unrelated titles. `keywordGatedGenres` is the deliberate exception, and it must
 only name the channel's own defining genre.
 
-**`rewatched` means `viewCount >= 3`** in both implementations.
+**`rewatched` means `viewCount >= 3`**.
 
 **Config version:** 50 · **142 channels** across **14 bundles** · 123 channels whose `id` differs from their `number`.
 
@@ -91,7 +88,7 @@ web filter) and `scripts/filter-golden.json` pins the cases.
 | Locked to | Matches on | Notes |
 |---|---|---|
 | CH190 HOLIDAZE (id 130)<br>CH191 SANTA'S LIST (id 409)<br>CH192 NAUGHTY LIST (id 410)<br>CH193 NOSTALGEX CHRISTMAS (id 411)<br>CH194 MISTLETOE (id 412)<br>CH195 CHRISTMAS SPECIALS (id 413)<br>CH196 KIDS CHRISTMAS TV (id 414) | genres Holiday/Christmas, 14 title words, 47 exact titles, only movies from the movie library | Christmas films belong to the TIS THE SEASON channels, including the two TV channels, which air half-hour specials stored as films. Films in a movie library only (`type: movie`, `source: movie`), so a show with Santa in its name and a Christmas song on a music video stay free. Title words are the ones that measured 95% or more Christmas across TMDB films with 25+ votes (2026-10-18): "Holiday" (66%, Mr. Bean's Holiday, Roman Holiday), "Santa" (87%, Santa Sangre, Santa Fe Trail), "Merry", "Snowman", "Grinch", "Scrooge", "Nutcracker" and "Reindeer" were dropped, so the channels still match them but no longer lock them away. Die Hard, Lethal Weapon, Reindeer Games, Rocky IV, Gremlins, Batman Returns, Trading Places, The Family Man, While You Were Sleeping and The Shop Around the Corner are deliberately NOT locked: Christmas-set, but they belong on their year-round channels too. |
-| id 32 (missing)<br>CH70 ANIME (id 60) | genres Anime, TMDB manifest claim (`manifestExclusive`) | Anime is claimed by genre `Anime` OR by a TMDB-manifest claim (`manifestExclusive`), so manifest-claimed anime is blocked from the other animation channels even when Plex only tags it "Animation". The manifest builder gates these channels with `requireGenres: ["Animation"]` + `requireOriginalLanguage: ["ja"]` + `autoSweepCollections: false` so TMDB similar/collection noise cannot be claimed. That blocks live-action (Spy Kids) AND Western animation (An American Tail, Avatar, Castlevania). Strict Japanese anime only. Re-run the keyword tuner to apply changes. |
+| id 32 (missing)<br>CH70 ANIME (id 60) | genres Anime, TMDB manifest claim (`manifestExclusive`) | Anime is claimed by genre `Anime` OR by a TMDB-manifest claim (`manifestExclusive`), so manifest-claimed anime is blocked from the other animation channels even when the server only tags it "Animation". The manifest builder gates these channels with `requireGenres: ["Animation"]` + `requireOriginalLanguage: ["ja"]` + `autoSweepCollections: false` so TMDB similar/collection noise cannot be claimed. That blocks live-action (Spy Kids) AND Western animation (An American Tail, Avatar, Castlevania). Strict Japanese anime only. Re-run the keyword tuner to apply changes. |
 | CH182 SCREAM ADULTS (id 132)<br>CH184 SLASHER (id 415) | 22 exact titles, only movies from the movie library | The Scream and Halloween films, by exact title, so SCREAM ADULTS and SLASHER own them rather than the other horror channels. It used to match any title containing "scream" or "halloween", which hid Kicking & Screaming and Hubie Halloween from every channel they belong on. |
 
 ---
@@ -161,10 +158,10 @@ _Everyday favorites and feel-good viewing_
 | 53 | `53` | FEEL GOOD TV | `#7ED957` | Episodes | 5 | title allowlist (51) |
 | 54 | `54` | REALITY TV | `#FF4500` | Episodes | 5 | incl Reality/Reality-TV/Docuseries, no Game Show/Game-Show/Competition |
 | 55 | **`56`** ⚠︎ | DOCS | `#2E86C1` | Any | 5 | incl Documentary, no Sport, kw +7, kw needs genre Documentary |
-| 56 | **`57`** ⚠︎ | LOL | `#F1C40F` | Movies | 5 | incl Comedy, no Horror/War/History/Documentary, kw excl (3), Plex rating ≥ 7 |
+| 56 | **`57`** ⚠︎ | LOL | `#F1C40F` | Movies | 5 | incl Comedy, no Horror/War/History/Documentary, kw excl (3), Rating ≥ 7 |
 | 57 | **`59`** ⚠︎ | MAN CAVE | `#4A6741` | Episodes | 3 | incl Crime/Action, no Family/Children/Kids, title allowlist (8) |
 | 58 | **`62`** ⚠︎ | FRESH | `#00E5FF` | Movies | 3 | released ≤ 6 mo ago, ≥ 60 min |
-| 59 | **`66`** ⚠︎ | BLOCKBUSTER | `#F39C12` | Movies | 5 | incl Action/Adventure/Science Fiction, Plex rating ≥ 6 |
+| 59 | **`66`** ⚠︎ | BLOCKBUSTER | `#F39C12` | Movies | 5 | incl Action/Adventure/Science Fiction, Rating ≥ 6 |
 | 60 | **`200`** ⚠︎ | DRAMA TV | `#5A3E8A` | Episodes | 10 | incl Drama, no Animation/Comedy/Documentary/Horror/Reality/Kids/Children/Family, kw +5, kw needs genre Drama |
 | 61 | **`210`** ⚠︎ | RECORD STORE | `#FF6B35` | Movies | 3 | incl Music, kw excl (4) |
 | 62 | **`404`** ⚠︎ | HISTORY & BIO | `#A0522D` | Movies | 5 | incl History/Biography, no Documentary/Docuseries/Animation/Animated |
@@ -185,8 +182,8 @@ _Premium channels_
 | 74 | **`64`** ⚠︎ | DATE NIGHT | `#E74C8B` | Movies | 3 | needs ALL Romance, no Horror/Animation/Family/Children/Kids, kw +7, kw excl (2) |
 | 75 | **`58`** ⚠︎ | STAND-UP | `#F5B041` | Any | 3 | **TMDB manifest + gated genre/keyword fallback**, incl Comedy/Documentary/Stand-Up, kw +2, kw needs genre Comedy/Documentary/Stand-Up, kw-gated genre Comedy/Documentary |
 | 76 | **`201`** ⚠︎ | BIOPICS | `#C9A84C` | Movies | 5 | kw +6 |
-| 77 | **`67`** ⚠︎ | ALL TIME GREATS | `#FFD700` | Movies | 5 | Plex rating ≥ 8.2, ≥ 60 min |
-| 78 | **`68`** ⚠︎ | CERTIFIED GOLD | `#F56040` | Movies | 3 | Plex rating ≥ 8, ≥ 60 min |
+| 77 | **`67`** ⚠︎ | ALL TIME GREATS | `#FFD700` | Movies | 5 | Rating ≥ 8.2, ≥ 60 min |
+| 78 | **`68`** ⚠︎ | CERTIFIED GOLD | `#F56040` | Movies | 3 | Rating ≥ 8, ≥ 60 min |
 | 79 | **`69`** ⚠︎ | OSCAR WINNERS | `#FFD700` | Movies | 3 | title allowlist (44), title blocklist (7) |
 | 80 | **`217`** ⚠︎ | SKETCH COMEDY | `#5DADE2` | Episodes | 3 | incl Comedy/Talk Show/News, title allowlist (24) |
 
@@ -198,7 +195,7 @@ _Epic quests, disasters, and adrenaline_
 |---|---|---|---|---|---|---|
 | 90 | **`70`** ⚠︎ | EPIC ADVENTURES | `#D4A017` | Movies | 3 | incl Adventure/Fantasy, no Animation/Animated/Family/Children/Kids, ≥ 110 min |
 | 91 | **`71`** ⚠︎ | DISASTER MOVIES | `#E67E22` | Movies | 3 | no Animation/Animated/Family/Fantasy/Romance, title allowlist (23), title blocklist (8) |
-| 92 | **`72`** ⚠︎ | RUSH | `#E74C3C` | Movies | 5 | incl Action/Thriller, no Family/Kids/Children/Animation/Animated/Fantasy, kw +10, 2000-…, Plex rating ≥ 5.5, ≥ 80 min |
+| 92 | **`72`** ⚠︎ | RUSH | `#E74C3C` | Movies | 5 | incl Action/Thriller, no Family/Kids/Children/Animation/Animated/Fantasy, kw +10, 2000-…, Rating ≥ 5.5, ≥ 80 min |
 | 93 | **`73`** ⚠︎ | SCI-FI | `#16A0C8` | Movies | 5 | incl Science Fiction/Horror, needs ALL Science Fiction, no Animation/Family/Kids, kw +8, kw needs genre Science Fiction |
 | 94 | **`74`** ⚠︎ | FANTASY | `#8E44AD` | Movies | 5 | incl Fantasy/Adventure, no Animation/Horror/Science Fiction, kw +7, kw needs genre Fantasy/Adventure |
 | 95 | **`75`** ⚠︎ | WESTERNS | `#B9770E` | Any | 3 | incl Western, kw +7, kw needs genre Western |
@@ -235,13 +232,13 @@ _Movies and shows sorted by decade_
 
 | CH | `id` | Name | Color | Type | Min items | Rules |
 |---|---|---|---|---|---|---|
-| 130 | **`90`** ⚠︎ | THE 60S | `#C0392B` | Any | 5 | 1960-1969, Plex rating ≥ 6 |
-| 131 | **`91`** ⚠︎ | THE 70S | `#D2691E` | Any | 5 | 1970-1979, Plex rating ≥ 6 |
-| 132 | **`92`** ⚠︎ | THE 80S | `#FF1493` | Any | 5 | 1980-1989, Plex rating ≥ 6 |
-| 133 | **`93`** ⚠︎ | THE 90S | `#00CED1` | Any | 5 | 1990-1999, Plex rating ≥ 6 |
-| 134 | **`94`** ⚠︎ | THE 00S | `#7B68EE` | Any | 5 | 2000-2009, Plex rating ≥ 6 |
-| 135 | **`95`** ⚠︎ | THE 10S | `#20B2AA` | Any | 5 | 2010-2019, Plex rating ≥ 6 |
-| 136 | **`96`** ⚠︎ | THE 20S | `#FF6347` | Any | 5 | 2020-2029, Plex rating ≥ 6 |
+| 130 | **`90`** ⚠︎ | THE 60S | `#C0392B` | Any | 5 | 1960-1969, Rating ≥ 6 |
+| 131 | **`91`** ⚠︎ | THE 70S | `#D2691E` | Any | 5 | 1970-1979, Rating ≥ 6 |
+| 132 | **`92`** ⚠︎ | THE 80S | `#FF1493` | Any | 5 | 1980-1989, Rating ≥ 6 |
+| 133 | **`93`** ⚠︎ | THE 90S | `#00CED1` | Any | 5 | 1990-1999, Rating ≥ 6 |
+| 134 | **`94`** ⚠︎ | THE 00S | `#7B68EE` | Any | 5 | 2000-2009, Rating ≥ 6 |
+| 135 | **`95`** ⚠︎ | THE 10S | `#20B2AA` | Any | 5 | 2010-2019, Rating ≥ 6 |
+| 136 | **`96`** ⚠︎ | THE 20S | `#FF6347` | Any | 5 | 2020-2029, Rating ≥ 6 |
 
 ### ARTHOUSE · CH 150-153
 
@@ -298,7 +295,7 @@ Spotlighted from 7 days before US Thanksgiving (the fourth Thursday of November)
 
 | CH | `id` | Name | Color | Type | Min items | Rules |
 |---|---|---|---|---|---|---|
-| 190 | **`130`** ⚠︎ | HOLIDAZE | `#C41E3A` | Movies | 3 | incl Holiday/Christmas, title allowlist (19), title blocklist (3), editorial always-in (98), Plex rating ≥ 5 |
+| 190 | **`130`** ⚠︎ | HOLIDAZE | `#C41E3A` | Movies | 3 | incl Holiday/Christmas, title allowlist (19), title blocklist (3), editorial always-in (98), Rating ≥ 5 |
 | 191 | **`409`** ⚠︎ | SANTA'S LIST | `#2ECC71` | Movies | 3 | incl Holiday/Christmas, title allowlist (114), title blocklist (9), rated G/PG/TV-Y/TV-Y7/TV-G/TV-PG/unrated |
 | 192 | **`410`** ⚠︎ | NAUGHTY LIST | `#C0392B` | Movies | 3 | incl Holiday/Christmas, title allowlist (114), title blocklist (9), rated PG-13/R/TV-14/TV-MA |
 | 193 | **`411`** ⚠︎ | NOSTALGEX CHRISTMAS | `#E74C3C` | Movies | 3 | incl Holiday/Christmas, title allowlist (114), title blocklist (9), …-1999 |

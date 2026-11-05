@@ -69,10 +69,6 @@ struct SettingsContainerView: View {
             appState.player?.isMuted = false
         }
         .task {
-            // Refresh the reachable-server list so deselected servers can be re-added.
-            await appState.refreshAvailableServers()
-        }
-        .task {
             // Refresh the library-section list so one picked off in onboarding (or on
             // a prior Settings visit) still shows up to be turned back on.
             await appState.refreshAvailableLibrarySections()

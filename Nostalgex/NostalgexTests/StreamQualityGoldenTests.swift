@@ -22,7 +22,6 @@ final class StreamQualityGoldenTests: XCTestCase {
         let maxBitrateKbps: Int
         let width: Int
         let height: Int
-        let videoQualityIndex: Int
     }
 
     private static let repoRoot = URL(fileURLWithPath: #filePath)
@@ -44,7 +43,6 @@ final class StreamQualityGoldenTests: XCTestCase {
             XCTAssertEqual(quality.maxBitrateBps, level.maxBitrateKbps * 1_000, level.id)
             XCTAssertEqual(quality.width, level.width, level.id)
             XCTAssertEqual(quality.height, level.height, level.id)
-            XCTAssertEqual(quality.videoQualityIndex, level.videoQualityIndex, level.id)
         }
     }
 }

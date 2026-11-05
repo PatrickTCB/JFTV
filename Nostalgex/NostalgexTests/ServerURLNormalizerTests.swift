@@ -29,9 +29,9 @@ final class ServerURLNormalizerTests: XCTestCase {
 
     func testOnlyWrongPlaceErrorsMoveOnToTheNextCandidate() {
         XCTAssertTrue(AppState.isWrongPlaceError(URLError(.cannotConnectToHost)))
-        XCTAssertTrue(AppState.isWrongPlaceError(PlexAPIService.APIError.httpFailure(statusCode: 404)))
-        XCTAssertTrue(AppState.isWrongPlaceError(PlexAPIService.APIError.receivedMarkupInsteadOfJSON(statusCode: 200)))
-        XCTAssertFalse(AppState.isWrongPlaceError(PlexAPIService.APIError.unauthorized), "a wrong password is a real answer")
+        XCTAssertTrue(AppState.isWrongPlaceError(MediaServerKit.APIError.httpFailure(statusCode: 404)))
+        XCTAssertTrue(AppState.isWrongPlaceError(MediaServerKit.APIError.receivedMarkupInsteadOfJSON(statusCode: 200)))
+        XCTAssertFalse(AppState.isWrongPlaceError(MediaServerKit.APIError.unauthorized), "a wrong password is a real answer")
         XCTAssertFalse(AppState.isWrongPlaceError(URLError(.timedOut)), "a dead address should fail once, not twice")
     }
 
@@ -61,15 +61,15 @@ final class QuickConnectFailureMessageTests: XCTestCase {
     }
 
     func testDisabledQuickConnectSaysSo() {
-        XCTAssertTrue(AppState.quickConnectFailureMessage(PlexAPIService.APIError.unauthorized).contains("Quick Connect is off"))
+        XCTAssertTrue(AppState.quickConnectFailureMessage(MediaServerKit.APIError.unauthorized).contains("Quick Connect is off"))
     }
 
     func testWrongPlaceSaysItIsNotJellyfin() {
-        XCTAssertTrue(AppState.quickConnectFailureMessage(PlexAPIService.APIError.httpFailure(statusCode: 404)).contains("isn't Jellyfin"))
+        XCTAssertTrue(AppState.quickConnectFailureMessage(MediaServerKit.APIError.httpFailure(statusCode: 404)).contains("isn't Jellyfin"))
     }
 
     func testNoEmDashes() {
-        for e: Error in [URLError(.timedOut), PlexAPIService.APIError.unauthorized, PlexAPIService.APIError.invalidResponse] {
+        for e: Error in [URLError(.timedOut), MediaServerKit.APIError.unauthorized, MediaServerKit.APIError.invalidResponse] {
             XCTAssertFalse(AppState.quickConnectFailureMessage(e).contains("\u{2014}"))
         }
     }

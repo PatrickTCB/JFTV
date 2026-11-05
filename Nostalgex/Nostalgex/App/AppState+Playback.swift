@@ -8,107 +8,6 @@ import UIKit
 // Player control, subtitles and audio selection, sleep timer, retries and auto-advance.
 // Split out of AppState.swift; behavior unchanged.
 extension AppState {
-    // MARK: - Explicit original-video compatibility retry
-
-    var canRetryOriginalVideo: Bool {
-        guard backendKind == .plex, !isDemoMode, let item = currentItem,
-              let backend = api(for: item.serverID) as? PlexAPIService else { return false }
-        return PlexAPIService.canRetryOriginalVideo(item, isLocal: backend.isLikelyLocalServer,
-                                                    hevcCapable: CodecSupport.deviceSupportsHEVC)
-    }
-
-    /// A fresh session is prepared while the old player stays in place. Rejected or stale
-    /// decisions clean up only their own session. No automatic 1080p recovery is allowed.
-    func retryOriginalVideoCompatibility() async -> String {
-        guard canRetryOriginalVideo, !compatibilityRetryInFlight, !playbackRecoveryInFlight, let item = currentItem,
-              let backend = api(for: item.serverID) as? PlexAPIService,
-              let oldItem = player?.currentItem else { return "RETRY UNAVAILABLE" }
-        compatibilityRetryInFlight = true
-        defer { compatibilityRetryInFlight = false }
-        let generation = loadGeneration
-        let attempt = playbackAttemptGeneration
-        let observed = oldItem.currentTime().seconds + hlsBaseOffset
-        let offset = observed.isFinite && observed >= 0 ? Int(observed) : max(0, seekOffset)
-        let playbackItem = await backend.itemWithPlaybackStreamFacts(item)
-        let convertSurround = playbackItem.audioCodec?.lowercased() == "eac3" && playbackItem.audioChannelCount == 8
-        let session = UUID().uuidString
-        guard let original = backend.transcodeURL(for: playbackItem, sessionID: session, offsetSeconds: offset),
-              let url = PlexAPIService.preservationRetryURL(from: original, audioStreamID: playbackItem.audioStreamID,
-                                                           convertSurroundAudio: convertSurround) else { return "RETRY UNAVAILABLE" }
-        let decision = await backend.prepareTranscodeSession(startURL: url)
-        guard isCurrentPlaybackAttempt(generation: generation, attempt: attempt, playerItem: oldItem),
-              !playbackRecoveryInFlight else {
-            await backend.stopTranscode(playSessionId: session)
-            return "PROGRAM CHANGED"
-        }
-        guard decision.code.hasPrefix("1"), decision.preservesOriginalVideo else {
-            await backend.stopTranscode(playSessionId: session)
-            return "SERVER CANNOT KEEP ORIGINAL VIDEO"
-        }
-        guard !convertSurround || decision.convertsAudioToAC3Surround else {
-            await backend.stopTranscode(playSessionId: session)
-            return "SERVER CANNOT KEEP SURROUND AUDIO"
-        }
-        // Invalidate the old player's watchdogs before installing the prepared session.
-        loadGeneration += 1
-        stopActiveTranscodeIfNeeded()
-        activeTranscode = (item.serverID, session)
-        playbackRequiresOriginalVideo = true
-        seekOffset = offset
-        hlsRequestedOffset = offset
-        hlsBaseOffset = 0
-        audioTracks = []
-        audibleGroup = nil
-        audibleGroupItem = nil
-        selectedAudioTrackID = nil
-        fallbackToTranscode(url: url, seekTo: nil, generation: loadGeneration,
-                            allowCappedRetry: false, prepared: true,
-                            informationReason: .originalVideoRetry)
-        return "RETRYING ORIGINAL VIDEO"
-    }
-
-    // MARK: - Open in Plex
-
-    /// Whether the current program can be handed to the Plex app: Plex backend, not demo,
-    /// and the Plex app is installed (canOpenURL requires the scheme to be declared in
-    /// LSApplicationQueriesSchemes).
-    var canOpenCurrentItemInPlex: Bool {
-        guard backendKind == .plex, !isDemoMode, currentItem != nil,
-              let probe = URL(string: "plex://") else { return false }
-        return UIApplication.shared.canOpenURL(probe)
-    }
-
-    /// Deep-links the current program into the Plex app via the community-documented
-    /// preplay scheme. Completion false means the app refused or the scheme didn't
-    /// resolve — the row shows that instead of failing silently.
-    func openCurrentItemInPlex(completion: @escaping (Bool) -> Void) {
-        guard let item = currentItem else { completion(false); return }
-        let machineID = item.serverID ?? selectedServers.first?.machineIdentifier ?? ""
-        var components = URLComponents()
-        components.scheme = "plex"
-        components.host = "preplay"
-        components.path = "/"
-        components.queryItems = [
-            .init(name: "metadataKey", value: "/library/metadata/\(item.ratingKey)"),
-            .init(name: "server", value: machineID),
-        ]
-        guard let url = components.url else { completion(false); return }
-        print("[Plex90] OPEN IN PLEX: \(url.absoluteString)")
-        UIApplication.shared.open(url, options: [:], completionHandler: completion)
-    }
-
-    /// Poster for the panel header. Plex-only: its server-side thumbnail transcode puts
-    /// the token in the URL, which is what lets plain AsyncImage load it.
-    func posterURL(for item: PlexMediaItem) -> URL? {
-        guard backendKind == .plex, !isDemoMode else { return nil }
-        if let sid = item.serverID,
-           let server = selectedServers.first(where: { $0.machineIdentifier == sid }),
-           let service = apiForServer(server) as? PlexAPIService {
-            return service.thumbnailURL(for: item, width: 300)
-        }
-        return (api as? PlexAPIService)?.thumbnailURL(for: item, width: 300)
-    }
-
     // MARK: - Subtitles (fullscreen + media selection)
 
     private var resolvedPreferredSubtitleLanguageCode: String {
@@ -731,8 +630,8 @@ extension AppState {
         }
 
         // Create a fresh tracker for this item. Reporting stays off unless the user
-        // turned it on: Plex gets timeline + scrobble, Jellyfin and Emby get the same
-        // watch counted on their server. Either way the tracker still accumulates time.
+        // turned it on: Jellyfin gets the watch counted on the server. Either way the
+        // tracker still accumulates time.
         if !preservingTracker {
             // Keep the backend available even with both choices off so a live
             // preference change takes effect without retuning or resetting analytics.
@@ -740,7 +639,6 @@ extension AppState {
             playbackTracker = PlaybackTracker(
                 item: item,
                 seekOffset: Int(currentPartBaseSeconds) + seekOffset,
-                plexAPI: reportingBackend as? PlexAPIService,
                 watchReporter: reportingBackend as? any WatchActivityReporting,
                 showNowPlaying: !isDemoMode && showNowPlaying,
                 markWatched: !isDemoMode && markWatched,
@@ -764,15 +662,9 @@ extension AppState {
         let itemAPI: (any MediaBackend)? = isDemoMode ? nil : api(for: item.serverID)
         let directPlayHeaders = itemAPI?.authHeaders ?? [:]
         let directURL = itemAPI?.buildDirectPlayURL(for: item)
-        // Fallback for direct play failing at runtime. Built with its own session id so the
-        // stop on the next channel change ends this transcode and no other.
-        let fallbackSession = UUID().uuidString
-        let fallbackStartsAtOffset = itemAPI is PlexAPIService && seekOffset > 0
-        // Emby needs the session id on the URL or every segment is refused; see
-        // EmbyAPIService.buildTranscodeURL(for:sessionID:).
-        let transcodeURL: URL? = (itemAPI as? PlexAPIService)?.transcodeURL(for: item, sessionID: fallbackSession, offsetSeconds: seekOffset)
-            ?? (itemAPI as? EmbyAPIService)?.buildTranscodeURL(for: item, sessionID: fallbackSession)
-            ?? itemAPI?.buildTranscodeURL(for: item)
+        // Fallback for direct play failing at runtime.
+        let fallbackStartsAtOffset = false
+        let transcodeURL: URL? = itemAPI?.buildTranscodeURL(for: item)
 
         if !isDemoMode && directURL == nil && transcodeURL == nil {
             print("[Plex90] gen=\(generation) | No URL available")
@@ -924,9 +816,6 @@ extension AppState {
                         // If direct play failed and we have a transcode URL, fall back
                         if isDirectPlay, let fallback = transcodeURL {
                             print("[Plex90] gen=\(generation) | Direct play failed, falling back to transcode")
-                            if itemAPI is PlexAPIService || itemAPI is EmbyAPIService {
-                                self.activeTranscode = (itemServerID, fallbackSession)
-                            }
                             if fallbackStartsAtOffset { self.hlsRequestedOffset = self.seekOffset }
                             self.fallbackToTranscode(url: fallback, seekTo: fallbackStartsAtOffset ? nil : seekTo,
                                                     generation: generation, informationReason: .directPlayFailed)

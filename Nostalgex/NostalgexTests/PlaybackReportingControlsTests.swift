@@ -14,83 +14,15 @@ final class PlaybackReportingControlsTests: XCTestCase {
                       rating: 0, userRating: 0, type: type, thumb: nil, art: nil, viewCount: 0,
                       addedAt: 0, studio: nil, tmdbID: nil, imdbID: nil, librarySource: .movie)
     }
-    private func plex(_ recorder: any ReportTransport, queue: ReportQueue,
-                      show: Bool, mark: Bool, type: MediaType = .movie,
-                      scope: PlaybackReportingControlScope? = nil) -> PlaybackTracker {
-        let api = PlexAPIService(serverURL: "http://plex.test", token: "synthetic", reportTransport: recorder)
-        return PlaybackTracker(item: item(type: type), seekOffset: 0, plexAPI: api,
-                               showNowPlaying: show, markWatched: mark, controlScope: scope, queue: queue,
-                               now: { [unowned self] in self.clock })
-    }
     private func play(_ tracker: PlaybackTracker, seconds: Int) {
         tracker.onPlaybackReady()
         for _ in 0..<(seconds / 10) { clock += 10; tracker.timelineTickForTesting() }
     }
 
-    func testTrackerDefaultsOffEvenWithARealBackendAvailable() async {
-        let transport = Recorder(), queue = ReportQueue()
-        let api = PlexAPIService(serverURL: "http://plex.test", token: "synthetic", reportTransport: transport)
-        let tracker = PlaybackTracker(item: item(), seekOffset: 0, plexAPI: api, queue: queue,
-                                      now: { [unowned self] in self.clock })
-        play(tracker, seconds: 50)
-        tracker.stop()
-        await queue.drain()
-        XCTAssertTrue(transport.calls.isEmpty)
-        XCTAssertEqual(tracker.watchedSecondsSoFar, 50, accuracy: 0.01)
-    }
-
-    func testPlexAllFourModesKeepAccountingIndependent() async {
-        for show in [false, true] {
-            for mark in [false, true] {
-                let transport = Recorder(), queue = ReportQueue()
-                let tracker = plex(transport, queue: queue, show: show, mark: mark)
-                play(tracker, seconds: 50)
-                tracker.stop()
-                await queue.drain()
-                let calls = transport.calls
-                XCTAssertEqual(calls.contains { $0.path == "/:/timeline" }, show)
-                XCTAssertEqual(calls.filter { $0.path == "/:/scrobble" }.count, mark ? 1 : 0)
-                XCTAssertEqual(tracker.watchedSecondsSoFar, 50, accuracy: 0.01)
-                XCTAssertEqual(tracker.flushWatchSecondsForAnalytics(), 50, accuracy: 0.01)
-                if !show && !mark { XCTAssertTrue(calls.isEmpty) }
-                if show && !mark { XCTAssertTrue(calls.allSatisfy { $0.path == "/:/timeline" }) }
-                for c in calls where c.path == "/:/timeline" {
-                    XCTAssertEqual(Set(c.query.keys), ["ratingKey", "key", "state"])
-                }
-            }
-        }
-    }
-
-    func testPlexNowPlayingOnlyEpisodeNeedsNoCaptureOrCleanup() async {
-        let transport = Recorder(), queue = ReportQueue()
-        let tracker = plex(transport, queue: queue, show: true, mark: false, type: .episode)
-        play(tracker, seconds: 50)
-        tracker.stop()
-        await queue.drain()
-        XCTAssertFalse(transport.calls.isEmpty)
-        XCTAssertTrue(transport.calls.allSatisfy { $0.path == "/:/timeline" })
-    }
-
-    func testPlexMarkOnlyEpisodeCapturesAndRemovesItsNextUpWithoutTimeline() async {
-        let transport = Recorder(), queue = ReportQueue()
-        transport.respond("GET /library/metadata/42", 200,
-                          "{\"MediaContainer\":{\"Metadata\":[{\"ratingKey\":\"42\",\"type\":\"episode\",\"grandparentRatingKey\":\"show\"}]}}")
-        transport.respond("GET /hubs/continueWatching/items", 200, "{\"MediaContainer\":{\"Metadata\":[]}}")
-        transport.respond("GET /hubs/continueWatching/items", 200,
-                          "{\"MediaContainer\":{\"Metadata\":[{\"ratingKey\":\"43\",\"type\":\"episode\",\"grandparentRatingKey\":\"show\"}]}}")
-        let tracker = plex(transport, queue: queue, show: false, mark: true, type: .episode)
-        play(tracker, seconds: 50)
-        tracker.stop()
-        await queue.drain()
-        XCTAssertFalse(transport.calls.contains { $0.path == "/:/timeline" })
-        XCTAssertEqual(transport.calls.filter { $0.path == "/:/scrobble" }.count, 1)
-        XCTAssertEqual(transport.calls.filter { $0.path == "/actions/removeFromContinueWatching" }.map { $0.query["ratingKey"] }, ["43"])
-    }
-
     private final class WatchReporter: WatchActivityReporting, @unchecked Sendable {
-        let transport: Recorder
+        let transport: any ReportTransport
         let watchStateGuard: any WatchStateGuarding
-        init(_ transport: Recorder) {
+        init(_ transport: any ReportTransport) {
             self.transport = transport
             self.watchStateGuard = MediaServerWatchStateGuard(serverURL: "http://jf.test", authorization: "synthetic",
                                                              userId: "user", transport: transport)
@@ -108,9 +40,10 @@ final class PlaybackReportingControlsTests: XCTestCase {
             _ = await transport.send(req)
         }
     }
-    private func mediaServer(_ transport: Recorder, queue: ReportQueue, show: Bool, mark: Bool) -> PlaybackTracker {
-        PlaybackTracker(item: item(), seekOffset: 0, plexAPI: nil, watchReporter: WatchReporter(transport),
-                        showNowPlaying: show, markWatched: mark, queue: queue,
+    private func mediaServer(_ transport: any ReportTransport, queue: ReportQueue, show: Bool, mark: Bool,
+                             scope: PlaybackReportingControlScope? = nil) -> PlaybackTracker {
+        PlaybackTracker(item: item(), seekOffset: 0, watchReporter: WatchReporter(transport),
+                        showNowPlaying: show, markWatched: mark, controlScope: scope, queue: queue,
                         now: { [unowned self] in self.clock })
     }
     private func knownPrior(_ transport: Recorder) {
@@ -118,8 +51,18 @@ final class PlaybackReportingControlsTests: XCTestCase {
                           "{\"UserData\":{\"PlaybackPositionTicks\":123400,\"PlayCount\":3,\"Played\":true,\"LastPlayedDate\":\"2026-10-01T00:00:00Z\"}}")
     }
 
-    func testJellyfinAndEmbyAllFourModesRestoreKnownPriorOrOneCountedWatch() async {
-        // Both backends use WatchActivityReporting + MediaServerWatchStateGuard.
+    func testTrackerDefaultsOffEvenWithARealBackendAvailable() async {
+        let transport = Recorder(), queue = ReportQueue()
+        let tracker = PlaybackTracker(item: item(), seekOffset: 0, watchReporter: WatchReporter(transport),
+                                      queue: queue, now: { [unowned self] in self.clock })
+        play(tracker, seconds: 50)
+        tracker.stop()
+        await queue.drain()
+        XCTAssertTrue(transport.calls.isEmpty)
+        XCTAssertEqual(tracker.watchedSecondsSoFar, 50, accuracy: 0.01)
+    }
+
+    func testJellyfinAllFourModesRestoreKnownPriorOrOneCountedWatch() async {
         for show in [false, true] {
             for mark in [false, true] {
                 let transport = Recorder(), queue = ReportQueue()
@@ -221,30 +164,32 @@ final class PlaybackReportingControlsTests: XCTestCase {
 
     func testOffOnDoesNotReviveAnOldQueuedActivityOrMark() async {
         let transport = Recorder(), queue = ReportQueue(), blocker = Blocker()
+        knownPrior(transport)
         queue.enqueue { await blocker.hold() }
-        let tracker = plex(transport, queue: queue, show: true, mark: true)
+        let tracker = mediaServer(transport, queue: queue, show: true, mark: true)
         play(tracker, seconds: 50)
         tracker.updateReporting(showNowPlaying: false, markWatched: false)
         tracker.updateReporting(showNowPlaying: true, markWatched: true)
         await blocker.release()
         await queue.drain()
-        XCTAssertEqual(transport.calls.filter { $0.path == "/:/timeline" }.map { $0.query["state"] }, ["playing"])
-        XCTAssertFalse(transport.calls.contains { $0.path == "/:/scrobble" }, "the old queued mark stayed revoked")
+        XCTAssertEqual(transport.calls.filter { $0.path.hasPrefix("/Sessions/Playing") }.map(\.path),
+                       ["/Sessions/Playing"], "only the fresh activity after the toggle runs")
+        XCTAssertFalse(transport.calls.contains { $0.path == "/Users/user/PlayedItems/42" }, "the old queued mark stayed revoked")
         tracker.timelineTickForTesting()
         tracker.stop()
         await queue.drain()
-        XCTAssertEqual(transport.calls.filter { $0.path == "/:/scrobble" }.count, 1)
-        XCTAssertEqual(transport.calls.last?.query["state"], "stopped")
+        XCTAssertEqual(transport.calls.filter { $0.path == "/Users/user/PlayedItems/42" }.count, 1)
+        XCTAssertTrue(transport.calls.contains { $0.path == "/Sessions/Playing/Stopped" })
     }
 
     func testSharedScopeRevokesOutgoingChannelWritesAndMarks() async {
         let transport = Recorder(), queue = ReportQueue(), blocker = Blocker()
         let scope = PlaybackReportingControlScope(showNowPlaying: true, markWatched: true)
         queue.enqueue { await blocker.hold() }
-        let outgoing = plex(transport, queue: queue, show: true, mark: true, scope: scope)
+        let outgoing = mediaServer(transport, queue: queue, show: true, mark: true, scope: scope)
         play(outgoing, seconds: 50)
         outgoing.stop()
-        let current = plex(transport, queue: queue, show: true, mark: true, scope: scope)
+        let current = mediaServer(transport, queue: queue, show: true, mark: true, scope: scope)
         current.onPlaybackReady()
         current.updateReporting(showNowPlaying: false, markWatched: false)
         await blocker.release()
@@ -258,18 +203,19 @@ final class PlaybackReportingControlsTests: XCTestCase {
     func testBackgroundGraceSurvivesAnOutgoingAttemptAndNewAllOffTracker() async {
         let transport = Recorder(), queue = ReportQueue(), blocker = Blocker()
         let scope = PlaybackReportingControlScope(showNowPlaying: true, markWatched: false)
+        knownPrior(transport)
         queue.enqueue { await blocker.hold() }
-        let outgoing = plex(transport, queue: queue, show: true, mark: false, scope: scope)
+        let outgoing = mediaServer(transport, queue: queue, show: true, mark: false, scope: scope)
         outgoing.onPlaybackReady()
         XCTAssertFalse(scope.hasAttemptedReporting, "queueing is not an attempt")
         await blocker.release()
         await queue.drain()
         XCTAssertTrue(scope.hasAttemptedReporting)
         outgoing.stop() // The final stop is queued and still needs suspension grace.
-        let current = plex(transport, queue: queue, show: false, mark: false, scope: scope)
+        let current = mediaServer(transport, queue: queue, show: false, mark: false, scope: scope)
         XCTAssertTrue(current.hasReportingWork, "the new tracker inherits outgoing cleanup work")
         await queue.drain()
-        XCTAssertEqual(transport.calls.last?.query["state"], "stopped")
+        XCTAssertTrue(transport.calls.contains { $0.path == "/Sessions/Playing/Stopped" })
         current.stop()
         await queue.drain()
     }
@@ -282,7 +228,7 @@ final class PlaybackReportingControlsTests: XCTestCase {
         func send(_ request: URLRequest) async -> (status: Int, body: Data)? {
             let response = await recorder.send(request)
             let shouldHold = lock.withLock {
-                guard !held, request.url?.path == "/:/timeline" else { return false }
+                guard !held, request.url?.path == "/Sessions/Playing" else { return false }
                 held = true
                 return true
             }
@@ -293,7 +239,8 @@ final class PlaybackReportingControlsTests: XCTestCase {
 
     func testInFlightSessionStillGetsItsFinalStopAfterDisable() async {
         let transport = HeldTransport(), queue = ReportQueue()
-        let tracker = plex(transport, queue: queue, show: true, mark: false)
+        knownPrior(transport.recorder)
+        let tracker = mediaServer(transport, queue: queue, show: true, mark: false)
         tracker.onPlaybackReady()
         await transport.blocker.waitUntilHolding()
         clock += 10
@@ -301,7 +248,8 @@ final class PlaybackReportingControlsTests: XCTestCase {
         tracker.updateReporting(showNowPlaying: false, markWatched: false)
         await transport.blocker.release()
         await queue.drain()
-        XCTAssertEqual(transport.recorder.calls.map { $0.query["state"] }, ["playing", "stopped"])
+        XCTAssertEqual(transport.recorder.calls.filter { $0.path.hasPrefix("/Sessions/Playing") }.map(\.path),
+                       ["/Sessions/Playing", "/Sessions/Playing/Stopped"])
         tracker.stop()
         await queue.drain()
     }

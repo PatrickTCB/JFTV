@@ -87,7 +87,7 @@ final class StreamFailureProbeTests: XCTestCase {
     func testARefusalFromTheProbeClassifiesAsServerRefused() {
         var e = PlaybackFailure.Evidence()
         e.httpStatuses = [500]
-        XCTAssertEqual(PlaybackFailure.classify(backend: .emby, evidence: e),
-                       .serverRefused(server: "Emby", status: 500))
+        XCTAssertEqual(PlaybackFailure.classify(backend: .jellyfin, evidence: e),
+                       .serverRefused(server: "Jellyfin", status: 500))
     }
 }

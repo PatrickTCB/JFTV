@@ -64,7 +64,6 @@ enum NowPlayingProgramRow: String, Hashable, CaseIterable {
     case audioHeader
     case audioTracks
     case audioLanguage
-    case openInPlex
 }
 
 /// Decides which optional rows the Now Playing panel offers for the current program.
@@ -81,8 +80,7 @@ enum NowPlayingPanelLayout {
     /// so it has to exist for every program.
     static func programRows(
         hasSubtitleTracks: Bool,
-        audioTrackCount: Int,
-        canOpenInPlex: Bool = false
+        audioTrackCount: Int
     ) -> [NowPlayingProgramRow] {
         var rows: [NowPlayingProgramRow] = [.captionsHeader, .captions]
         if hasSubtitleTracks {
@@ -93,11 +91,6 @@ enum NowPlayingPanelLayout {
         rows.append(.audioTracks)
         if audioTrackCount > 1 {
             rows.append(.audioLanguage)
-        }
-        // Last, deliberately: it leaves the app, so it should never sit between the user
-        // and the settings they came for.
-        if canOpenInPlex {
-            rows.append(.openInPlex)
         }
         return rows
     }

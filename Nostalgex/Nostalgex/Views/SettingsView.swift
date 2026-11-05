@@ -1,7 +1,6 @@
 import SwiftUI
 import Combine
 import os
-import CoreImage.CIFilterBuiltins
 
 /// The connect screens: pick a backend, then Plex's code, or for Jellyfin and Emby find
 /// the server, check it, and sign in the shortest way it allows.
@@ -86,7 +85,7 @@ struct SettingsView: View {
                         .font(.custom("DMMono-Medium", size: 40))
                         .foregroundStyle(.white.opacity(0.9))
 
-                    Text("Nostalgex builds a retro channel guide from your own library. Connect Plex, Jellyfin, or Emby to get started.")
+                    Text("Nostalgex builds a retro channel guide from your own library. Connect Jellyfin to get started.")
                         .font(.custom("DMMono-Regular", size: 22))
                         .foregroundStyle(.white.opacity(0.45))
                         .multilineTextAlignment(.leading)
@@ -110,10 +109,8 @@ struct SettingsView: View {
                     if appState.isAuthInProgress {
                         if usingQuickConnect {
                             quickConnectSection
-                        } else if case .signIn = screen {
-                            signingInSection
                         } else {
-                            pinDisplaySection
+                            signingInSection
                         }
                     } else if let checkingLabel {
                         checkingSection(checkingLabel)
@@ -226,7 +223,7 @@ struct SettingsView: View {
         if appState.isAuthInProgress { return usingQuickConnect ? "usePassword" : "cancel" }
         if checkingLabel != nil { return "cancel" }
         switch screen {
-        case .picker: return "plex"
+        case .picker: return "jellyfin"
         case .find:
             switch discovery {
             case .several(let list): return list.first.map { "found-\($0.id)" } ?? "find"
@@ -362,16 +359,12 @@ struct SettingsView: View {
     private func signIn(_ server: SignInFlow.CheckedServer) {
         usingQuickConnect = false
         let name = pickedUser?.name ?? username
-        switch server.kind {
-        case .jellyfin: appState.authenticateJellyfin(serverURL: server.url, username: name, password: password)
-        case .emby: appState.authenticateEmby(serverURL: server.url, username: name, password: password)
-        case .plex: break
-        }
+        appState.authenticateJellyfin(serverURL: server.url, username: name, password: password)
     }
 
     private var currentKind: MediaBackendKind {
         switch screen {
-        case .picker: return .plex
+        case .picker: return .jellyfin
         case .find(let kind), .typeAddress(let kind): return kind
         case .signIn(let server): return server.kind
         }
@@ -380,7 +373,6 @@ struct SettingsView: View {
     // MARK: - Backend picker (idle state)
 
     private var backendPickerSection: some View {
-        // Fixed column width so all three connect buttons share one edge-to-edge measure.
         VStack(spacing: 22) {
             if let error = appState.authError {
                 Text(error.uppercased())
@@ -425,28 +417,10 @@ struct SettingsView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            Button("CONNECT TO PLEX") {
-                appState.startPINAuth()
-            }
-            .buttonStyle(OnboardingButtonStyle(role: .primary))
-            .focused($focusedControl, equals: "plex")
-            .accessibilityIdentifier("connectToPlexButton")
-
-            Text("OR CONNECT WITH")
-                .font(.custom("DMMono-Regular", size: 20))
-                .foregroundStyle(.white.opacity(0.35))
-                .tracking(2)
-                .padding(.top, 10)
-
-            Button("JELLYFIN") { go(to: .find(.jellyfin), search: true) }
-                .buttonStyle(OnboardingButtonStyle(role: .secondary))
+            Button("CONNECT TO JELLYFIN") { go(to: .find(.jellyfin), search: true) }
+                .buttonStyle(OnboardingButtonStyle(role: .primary))
                 .focused($focusedControl, equals: "jellyfin")
                 .accessibilityIdentifier("connectToJellyfinButton")
-
-            Button("EMBY") { go(to: .find(.emby), search: true) }
-                .buttonStyle(OnboardingButtonStyle(role: .secondary))
-                .focused($focusedControl, equals: "emby")
-                .accessibilityIdentifier("connectToEmbyButton")
 
             // Demo Mode: bundled sample channels, no account required. Primarily an
             // App Store review fallback; small so real users pick a real server, but
@@ -470,7 +444,7 @@ struct SettingsView: View {
         case .nothingFound, .several: findLabel = SignInFlow.Copy.searchAgain
         case .idle: findLabel = LANServerDiscovery.Copy.findButton
         }
-        let prefix = kind == .jellyfin ? "jellyfin" : "emby"
+        let prefix = "jellyfin"
 
         return VStack(spacing: 22) {
             stepTitle(SignInFlow.Copy.connectTitle(kind))
@@ -557,7 +531,7 @@ struct SettingsView: View {
 
     private func signInSection(_ server: SignInFlow.CheckedServer) -> some View {
         let showTiles = !server.users.isEmpty && !typingName
-        let prefix = server.kind == .jellyfin ? "jellyfin" : "emby"
+        let prefix = "jellyfin"
         return VStack(spacing: 20) {
             VStack(spacing: 6) {
                 caption(SignInFlow.Copy.signInTo)
@@ -736,44 +710,6 @@ struct SettingsView: View {
         .frame(maxWidth: 720)
     }
 
-    // MARK: - PIN display (Plex polling state)
-
-    private var pinDisplaySection: some View {
-        HStack(alignment: .center, spacing: 80) {
-
-            // Left: instructions + PIN + status
-            VStack(alignment: .leading, spacing: 24) {
-                Text("GO TO plex.tv/link AND ENTER:")
-                    .font(.custom("DMMono-Medium", size: 28))
-                    .foregroundStyle(OnboardingPalette.cyan)
-
-                Text(appState.pinCode.isEmpty ? "----" : appState.pinCode)
-                    .font(.custom("DMMono-Medium", size: 108))
-                    .foregroundStyle(.white)
-                    .kerning(16)
-
-                WaitingIndicatorView(message: appState.isDiscoveringServers
-                    ? "FINDING YOUR SERVERS"
-                    : appState.pinCode.isEmpty ? "CONNECTING TO PLEX.TV" : "WAITING FOR AUTHORIZATION")
-
-                cancelButton(quietFocus: true) { appState.cancelPINAuth() }
-            }
-
-            // Right: QR code
-            VStack(spacing: 12) {
-                QRCodeView(url: appState.pinCode.isEmpty
-                    ? "https://www.plex.tv/link/"
-                    : "https://www.plex.tv/link/?pin=\(appState.pinCode)")
-                    .frame(width: 200, height: 200)
-                    .cornerRadius(8)
-
-                Text("SCAN TO CONNECT")
-                    .font(.custom("DMMono-Regular", size: 20))
-                    .foregroundStyle(.gray.opacity(0.6))
-            }
-        }
-    }
-
     // MARK: - Pieces
 
     private func stepTitle(_ text: String) -> some View {
@@ -814,32 +750,6 @@ struct SettingsView: View {
             .buttonStyle(OnboardingButtonStyle(role: .quiet, fullWidth: false, quietFocus: quietFocus))
             .focused($focusedControl, equals: "cancel")
             .accessibilityIdentifier("signInCancelButton")
-    }
-}
-
-// MARK: - QR Code
-
-struct QRCodeView: View {
-    let url: String
-
-    var body: some View {
-        if let image = generateQRCode(from: url) {
-            Image(uiImage: image)
-                .interpolation(.none)
-                .resizable()
-                .scaledToFit()
-        }
-    }
-
-    private func generateQRCode(from string: String) -> UIImage? {
-        let context = CIContext()
-        let filter = CIFilter.qrCodeGenerator()
-        filter.message = Data(string.utf8)
-        filter.correctionLevel = "M"
-        guard let output = filter.outputImage else { return nil }
-        let scaled = output.transformed(by: CGAffineTransform(scaleX: 10, y: 10))
-        guard let cgImage = context.createCGImage(scaled, from: scaled.extent) else { return nil }
-        return UIImage(cgImage: cgImage)
     }
 }
 

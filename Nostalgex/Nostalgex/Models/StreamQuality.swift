@@ -49,7 +49,7 @@ enum StreamQuality: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
-    /// Kilobits per second — Plex's `maxVideoBitrate` unit.
+    /// Kilobits per second ceiling for the stream.
     var maxBitrateKbps: Int {
         switch self {
         case .auto:    return 40_000
@@ -60,7 +60,7 @@ enum StreamQuality: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
-    /// Bits per second — Jellyfin and Emby's `MaxStreamingBitrate` / `VideoBitrate` unit.
+    /// Bits per second — Jellyfin's `MaxStreamingBitrate` / `VideoBitrate` unit.
     var maxBitrateBps: Int { maxBitrateKbps * 1_000 }
 
     var width: Int {
@@ -83,16 +83,6 @@ enum StreamQuality: String, CaseIterable, Identifiable, Sendable {
 
     var resolutionString: String { "\(width)x\(height)" }
 
-    /// Plex's 0-100 quality index, paired with the bitrate ceiling above.
-    var videoQualityIndex: Int {
-        switch self {
-        case .auto, .maximum: return 100
-        case .high:           return 90
-        case .medium:         return 75
-        case .low:            return 60
-        }
-    }
-
     /// Bitrate ceiling for *direct play* over a remote connection, in kbps.
     ///
     /// Transcoded playback negotiates down on its own via adaptive HLS, so its ceiling can
@@ -114,7 +104,7 @@ enum StreamQuality: String, CaseIterable, Identifiable, Sendable {
 
     /// Whether the server may drop quality mid-stream (`autoAdjustQuality` on the request).
     ///
-    /// Always off. Measured 2026-10-06 against Chad's Plex server: with it on, every stream
+    /// Always off. Measured 2026-10-06: with it on, every stream
     /// where both video and audio are re-encoded came back as 3-second segments, served the
     /// first eight at full speed, then one segment every 6.1 seconds for the rest of the
     /// film. tvOS 26 abandons a segment that slow (CoreMedia -15628) and the picture died at
@@ -122,16 +112,4 @@ enum StreamQuality: String, CaseIterable, Identifiable, Sendable {
     /// same request came back as 1-second segments and ran 75 seconds of content in 75
     /// seconds. Quality stepping is the app's own job now (PlaybackStarvation).
     var allowsAutoAdjust: Bool { false }
-}
-
-/// Independent local Plex opt-in. Capped quality remains stored for remote servers,
-/// other backends and formats outside the verified original-video path.
-enum LocalPlexOriginalQuality {
-    static let storageKey = "nostalgex_local_plex_original_video"
-    static let requestCeilingKbps = 100_000
-    static let detail = "Keep supported local 4K video unchanged, up to 100 Mbps. Audio may convert to 5.1. Other playback keeps your capped quality. Applies on the next tune."
-    static var enabled: Bool {
-        get { AppDefaults.standard.bool(forKey: storageKey) }
-        set { AppDefaults.standard.set(newValue, forKey: storageKey) }
-    }
 }

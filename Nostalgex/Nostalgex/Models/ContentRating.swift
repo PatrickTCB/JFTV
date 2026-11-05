@@ -14,9 +14,7 @@ import Foundation
 ///
 /// The item keeps its raw label for display; only the rule checks read this.
 ///
-/// Keep in sync with `usContentRating` in scripts/nostalgex-channel-filter.cjs and
-/// `NxUsContentRating` in roku/source/filter/ChannelFilter.brs. All three read
-/// scripts/rating-golden.json (RatingGoldenTests here).
+/// `RatingGoldenTests` holds this to the shared vectors in scripts/rating-golden.json.
 enum ContentRating {
 
     enum Band {

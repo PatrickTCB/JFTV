@@ -69,16 +69,14 @@ final class PlaybackTracker {
 
     // MARK: - Server reporting (nil = demo or unavailable backend)
 
-    private let plexAPI: PlexAPIService?
     private let watchReporter: (any WatchActivityReporting)?
     private var showNowPlaying: Bool
     private var markWatched: Bool
     private let permissions: PlaybackReportPermissions
 
-    /// AVPlayer's last state ("playing", "paused", "buffering"), so Now Playing on Plex
-    /// shows a pause as a pause. From PR #18.
+    /// AVPlayer's last state ("playing", "paused", "buffering").
     private var playerState: String?
-    /// Backgrounding already sent the stop; foregrounding clears it. From PR #18.
+    /// Backgrounding already sent the stop; foregrounding clears it.
     private var backgrounded = false
     private let backoff = PulseBackoff()
 
@@ -97,7 +95,6 @@ final class PlaybackTracker {
     init(
         item: PlexMediaItem,
         seekOffset: Int,
-        plexAPI: PlexAPIService?,
         watchReporter: (any WatchActivityReporting)? = nil,
         showNowPlaying: Bool = false,
         markWatched: Bool = false,
@@ -107,16 +104,11 @@ final class PlaybackTracker {
     ) {
         self.item = item
         self.seekOffset = seekOffset
-        self.plexAPI = plexAPI
         self.watchReporter = watchReporter
         self.showNowPlaying = showNowPlaying
         self.markWatched = markWatched
         self.permissions = PlaybackReportPermissions(showNowPlaying: showNowPlaying, markWatched: markWatched, scope: controlScope)
-        if let plexAPI {
-            self.watchGuard = plexAPI.watchStateGuard
-        } else {
-            self.watchGuard = watchReporter?.watchStateGuard
-        }
+        self.watchGuard = watchReporter?.watchStateGuard
         self.queue = queue
         self.now = now
 
@@ -154,12 +146,10 @@ final class PlaybackTracker {
         timelineTimer = nil
     }
 
-    /// AVPlayer's state, from `timeControlStatus`. On Plex a change shows in Now Playing
-    /// at once instead of on the next pulse. Never touches the watch clock.
+    /// AVPlayer's state, from `timeControlStatus`. Never touches the watch clock.
     func onHeartbeatPlaybackState(_ state: String) {
         guard !stopped, !backgrounded, state != playerState else { return }
         playerState = state
-        if plexAPI != nil, timelineTimer != nil { sendTimeline(state: state) }
     }
 
     /// Call when the app enters the background. The app may never come back, so the
@@ -312,10 +302,9 @@ final class PlaybackTracker {
     }
 
     private func sendTimeline(state: String, pulse: Bool = false) {
-        guard plexAPI != nil || watchReporter != nil else { return }
+        guard watchReporter != nil else { return }
         if state != "stopped", !showNowPlaying { return }
         if pulse, !backoff.allowPulse() { return }
-        let api = plexAPI
         let reporter = watchReporter
         let guardian = watchGuard
         let item = self.item
@@ -325,14 +314,11 @@ final class PlaybackTracker {
         let sid = sessionID
         let ticks = currentTimeMs() * 10_000
         let durationTicks = item.duration * 60 * 10_000_000
-        let reported = state == "playing" ? (playerState ?? "playing") : state
         let backoff = self.backoff
         queue.enqueue {
             if state == "stopped" {
                 guard box.sessionAttempted else { return }
-                if let api {
-                    backoff.record(success: await api.reportHeartbeat(ratingKey: item.ratingKey, state: "stopped", sessionID: sid))
-                } else if let reporter {
+                if let reporter {
                     // A Now Playing-only session must not cross the server's completion
                     // line on stop. Restoration still repairs the start report's count.
                     let capped = durationTicks > 0 ? min(ticks, Int(Double(durationTicks) * 0.89)) : ticks
@@ -345,19 +331,15 @@ final class PlaybackTracker {
                 return
             }
             guard permissions.allowsActivity(epoch: epoch) else { return }
-            if api == nil || permissions.markEnabled {
-                await Self.captureIfNeeded(box, guardian: guardian, item: item)
-            }
-            // Jellyfin/Emby mutate play counts on session start. Without a prior
+            await Self.captureIfNeeded(box, guardian: guardian, item: item)
+            // Jellyfin mutates play counts on session start. Without a prior
             // snapshot there is no safe restoration, so skip this item's session.
-            if api == nil, box.prior == nil { return }
+            if box.prior == nil { return }
             guard permissions.beginActivity(epoch: epoch) else { return }
             let started = box.sessionAttempted
             box.sessionAttempted = true // A lost response still needs a bounded stop.
             box.needsCleanup = true
-            if let api {
-                backoff.record(success: await api.reportHeartbeat(ratingKey: item.ratingKey, state: reported, sessionID: sid))
-            } else if let reporter {
+            if let reporter {
                 backoff.record(success: await reporter.reportWatchActivity(
                     itemId: item.ratingKey, mediaSourceId: item.partKey ?? item.ratingKey,
                     playSessionId: sid, positionTicks: ticks, event: started ? .progress : .started))
@@ -366,11 +348,10 @@ final class PlaybackTracker {
     }
 
     private func evaluateAndScrobble() {
-        guard markWatched, eligibleEntry, !scrobbled, plexAPI != nil || watchReporter != nil else { return }
+        guard markWatched, eligibleEntry, !scrobbled, watchReporter != nil else { return }
         let totalSec = Double(item.duration * 60)
         guard totalSec > 0, activeWatchSeconds / totalSec >= 0.75 else { return }
         scrobbled = true
-        let api = plexAPI
         let reporter = watchReporter
         let guardian = watchGuard
         let item = self.item
@@ -380,12 +361,11 @@ final class PlaybackTracker {
         queue.enqueue {
             guard permissions.allowsMark(epoch: epoch) else { return }
             await Self.captureIfNeeded(box, guardian: guardian, item: item)
-            // Without a baseline, skip this Jellyfin/Emby session's watched writes too.
-            guard api != nil || box.prior != nil else { return }
+            // Without a baseline, skip this session's watched writes too.
+            guard box.prior != nil else { return }
             guard permissions.beginMark(epoch: epoch) else { return }
             box.needsCleanup = true
-            if let api { await api.scrobble(ratingKey: item.ratingKey) }
-            else if let reporter {
+            if let reporter {
                 // Always explicit, including mark-only watches past 90%. Session stops
                 // stay below auto-completion; cleanup normalizes to one counted watch.
                 await reporter.markWatched(itemId: item.ratingKey)

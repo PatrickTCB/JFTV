@@ -401,7 +401,7 @@ final class BigLibraryHarness: XCTestCase {
         let store = InMemoryStore()
         var state: AppState? = AppState(credentialStore: store)
         state!.backendOverride = { _ in backend }
-        state!.completePlexSignIn(token: "plex-account-token", servers: [server])
+        state!.completeSignIn(token: "plex-account-token", servers: [server])
         await state!.loadLibrary()
         rec.mark("loadLibrary.return")
         // The snapshot is written on a background queue. Wait for it here, off the main
@@ -460,7 +460,7 @@ final class BigLibraryHarness: XCTestCase {
         rec.mark("release session")
         let relaunch = AppState(credentialStore: store)
         relaunch.backendOverride = { _ in backend }
-        relaunch.completePlexSignIn(token: "plex-account-token", servers: [server])
+        relaunch.completeSignIn(token: "plex-account-token", servers: [server])
         let restored = await relaunch.restoreLibraryFromSnapshotIfNeeded()
         rec.mark("relaunch.restoreSnapshot")
         let restoredItems = relaunch.allItems.count

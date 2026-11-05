@@ -19,9 +19,11 @@ final class LibraryRefreshEfficiencyTests: XCTestCase {
 
     // MARK: - Fingerprint ignores the session token
 
-    func testPlexFingerprintSurvivesANewToken() {
+    func testFingerprintSurvivesANewToken() {
         let state = AppState(credentialStore: InMemoryStore())
-        state.backendKind = .plex
+        state.backendKind = .jellyfin
+        state.serverURL = "https://jf.local"
+        state.jellyfinUserId = "u1"
         state.selectedServers = [server("den")]
         state.token = "token-A"
         let before = state.scheduleCredentialFingerprint
@@ -29,12 +31,13 @@ final class LibraryRefreshEfficiencyTests: XCTestCase {
         XCTAssertEqual(state.scheduleCredentialFingerprint, before, "a fresh sign-in is the same library; the snapshot and schedules must survive it")
     }
 
-    func testFingerprintChangesWithTheServerSet() {
+    func testFingerprintChangesWithTheServerURL() {
         let state = AppState(credentialStore: InMemoryStore())
-        state.backendKind = .plex
-        state.selectedServers = [server("den")]
+        state.backendKind = .jellyfin
+        state.serverURL = "https://jf-den.local"
+        state.jellyfinUserId = "u1"
         let one = state.scheduleCredentialFingerprint
-        state.selectedServers = [server("den"), server("loft")]
+        state.serverURL = "https://jf-loft.local"
         XCTAssertNotEqual(state.scheduleCredentialFingerprint, one)
     }
 

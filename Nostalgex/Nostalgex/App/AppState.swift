@@ -192,8 +192,8 @@ class AppState {
     var serverName: String = ""
 
     /// Which media backend the user authenticated with. Drives `apiForServer`.
-    /// Defaults to `.plex` so existing installs keep working without re-auth.
-    var backendKind: MediaBackendKind = .plex {
+    /// Jellyfin is the only backend.
+    var backendKind: MediaBackendKind = .jellyfin {
         didSet { registerScheduleLineup() }
     }
     /// Jellyfin user id (paired with `token` as the access token when on Jellyfin).
@@ -204,12 +204,10 @@ class AppState {
     static let backendKindKey = "backend_kind"
     static let jellyfinUserIdKey = "jellyfin_user_id"
 
-    /// User-facing name of the active backend ("Plex" / "Jellyfin"). Drives Settings copy.
+    /// User-facing name of the active backend ("Jellyfin"). Drives Settings copy.
     var backendDisplayName: String {
         switch backendKind {
-        case .plex: return "Plex"
         case .jellyfin: return "Jellyfin"
-        case .emby: return "Emby"
         }
     }
 
@@ -219,9 +217,7 @@ class AppState {
     var analyticsBackend: AnalyticsBackend {
         if isDemoMode { return .demo }
         switch backendKind {
-        case .plex: return .plex
         case .jellyfin: return .jellyfin
-        case .emby: return .emby
         }
     }
 
@@ -399,26 +395,17 @@ class AppState {
         return true
     }
 
-    // PIN auth state
-    var pinCode: String = ""
-    var pinID: Int = 0
+    // Sign-in state
     var isAuthInProgress: Bool = false
     var authError: String? = nil
-    /// Backend + method for the sign-in currently in flight. Set by the four
-    /// `startPINAuth` / `authenticate…` / `startJellyfinQuickConnect` entry points and
-    /// cleared once the attempt resolves. Only used by analytics — it drives
-    /// `connect.cancelled` / `connect.code_expired`, which need to say WHICH kind of
-    /// sign-in the user backed out of.
+    /// Backend + method for the sign-in currently in flight. Set by the
+    /// `authenticateJellyfin` / `startJellyfinQuickConnect` entry points and cleared once
+    /// the attempt resolves. Only used by analytics — it drives `connect.cancelled` /
+    /// `connect.code_expired`, which need to say WHICH kind of sign-in the user backed
+    /// out of.
     var currentAuthAttempt: (backend: AnalyticsBackend, method: AnalyticsConnectMethod)? = nil
-    /// True after auth when the account can reach more than one server and the user
-    /// hasn't yet chosen which to include. Drives the login server picker.
-    var needsServerSelection: Bool = false
-    /// True while discovering reachable servers after a successful PIN auth. Lets the
-    /// login screen say "finding your servers" instead of leaving the "waiting for
-    /// authorization" message up during the (network-bound) discovery step.
-    var isDiscoveringServers: Bool = false
     /// Jellyfin Quick Connect code the user enters/approves in their dashboard.
-    /// Displayed by the login screen while polling, analogous to `pinCode`.
+    /// Displayed by the login screen while polling.
     var jellyfinQuickConnectCode: String = ""
     var pinPollTask: Task<Void, Never>?
     var collectionScanTask: Task<Void, Never>?
@@ -812,9 +799,8 @@ class AppState {
     // Moved here from the shared-playback section during the AppState split:
     // @Observable requires stored properties to live in the main class body.
     /// The active server-side transcode (if any) so we can stop it on a channel change.
-    /// `playSessionId` is Jellyfin's session token (nil for Plex, which is keyed off the
-    /// stable client id). Set only when a transcode item loads; cleared by the stop helper.
-    var compatibilityRetryInFlight = false
+    /// `playSessionId` is Jellyfin's session token. Set only when a transcode item loads;
+    /// cleared by the stop helper.
     var playbackRequiresOriginalVideo = false
     var activeTranscode: (serverID: String?, playSessionId: String?)?
 
@@ -921,14 +907,10 @@ class AppState {
         return "\(h):\(u.port ?? 32400)"
     }
 
-    /// What the snapshot and schedules are keyed on. Plex: the server set (accounts are
-    /// separated by Disconnect clearing the snapshot). Jellyfin/Emby: server plus user id,
-    /// since those tokens are per-user and the user id is stable across sign-ins.
+    /// What the snapshot and schedules are keyed on: the backend, server plus user id,
+    /// since Jellyfin tokens are per-user and the user id is stable across sign-ins.
     var snapshotIdentitySeed: String {
-        switch backendKind {
-        case .plex: return "plex|\(snapshotServerSeed)"
-        default: return "\(backendKind.rawValue)|\(serverURL)|\(jellyfinUserId)"
-        }
+        "\(backendKind.rawValue)|\(serverURL)|\(jellyfinUserId)"
     }
 
     var libraryLastUpdatedText: String {
@@ -955,8 +937,8 @@ class AppState {
     }
 
     /// Test seam. When set, every backend lookup goes through here instead of building a
-    /// real Plex / Jellyfin / Emby service, so a library load can be driven end to end
-    /// against canned items and no network. Nil in the app.
+    /// real Jellyfin service, so a library load can be driven end to end against canned
+    /// items and no network. Nil in the app.
     @ObservationIgnored var backendOverride: ((ServerRef?) -> any MediaBackend)? = nil
 
     /// Constructs the right backend for a server. Backends are lightweight value types
@@ -965,25 +947,9 @@ class AppState {
     func apiForServer(_ server: ServerRef?) -> any MediaBackend {
         if let backendOverride { return backendOverride(server) }
         switch backendKind {
-        case .plex:
-            // Demo / App Review repro: no structured server, use raw serverURL+token.
-            guard let server else {
-                return PlexAPIService(serverURL: serverURL, token: token, serverID: "")
-            }
-            // Shared servers need their own access token; owned servers fall back to account token.
-            let serverToken = server.token ?? token
-            return PlexAPIService(serverURL: server.baseURL, token: serverToken, serverID: server.machineIdentifier)
         case .jellyfin:
             // Jellyfin is single-server: one URL + access token + user id.
             return JellyfinAPIService(
-                serverURL: server?.baseURL ?? serverURL,
-                accessToken: server?.token ?? token,
-                userId: server?.userId ?? jellyfinUserId,
-                serverID: server?.machineIdentifier ?? ""
-            )
-        case .emby:
-            // Emby is single-server: same credential shape as Jellyfin.
-            return EmbyAPIService(
                 serverURL: server?.baseURL ?? serverURL,
                 accessToken: server?.token ?? token,
                 userId: server?.userId ?? jellyfinUserId,

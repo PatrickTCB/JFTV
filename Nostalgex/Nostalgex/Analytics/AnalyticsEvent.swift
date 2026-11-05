@@ -5,16 +5,13 @@ import Foundation
 /// Which media server the event is about. `.demo` is separate so demo-mode sessions
 /// can't drift into the real-backend cohort even when a user briefly explored demo.
 enum AnalyticsBackend: String, Sendable {
-    case plex
     case jellyfin
-    case emby
     case demo
 }
 
-/// How the sign-in flow was started. `.pin` covers plex.tv PIN, `.password` covers
-/// direct username+password (Jellyfin, Emby), `.quickConnect` is Jellyfin Quick Connect.
+/// How the sign-in flow was started. `.password` covers direct username+password,
+/// `.quickConnect` is Jellyfin Quick Connect.
 enum AnalyticsConnectMethod: String, Sendable {
-    case pin
     case password
     case quickConnect
 

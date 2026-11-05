@@ -6,10 +6,6 @@
 	<string>LongFormAudio</string>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
-	<key>LSApplicationQueriesSchemes</key>
-	<array>
-		<string>plex</string>
-	</array>
 	<!-- NSAllowsArbitraryLoads ONLY. On tvOS 10+ the presence of any of
 	     NSAllowsLocalNetworking, NSAllowsArbitraryLoadsInWebContent or
 	     NSAllowsArbitraryLoadsForMedia makes the system IGNORE
@@ -24,7 +20,7 @@
 		<true/>
 	</dict>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Nostalgex streams from your Plex, Jellyfin or Emby server on your local network, and looks for servers on it when you ask it to.</string>
+	<string>Nostalgex streams from your Jellyfin server on your local network, and looks for servers on it when you ask it to.</string>
 	<!-- Filled from Config.xcconfig (defaults empty) and Secrets.xcconfig (gitignored).
 	     Read by Services/TMDBConfig.swift. Empty means enrichment stays off. -->
 	<key>SupabaseAnonKey</key>

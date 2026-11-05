@@ -291,7 +291,7 @@ final class LibrarySnapshotChunkedTests: XCTestCase {
 
         let store = InMemoryStore()
         let state = AppState(credentialStore: store)
-        state.completePlexSignIn(token: "plex-account-token", servers: [
+        state.completeSignIn(token: "plex-account-token", servers: [
             AppState.ServerRef(machineIdentifier: Self.serverID, name: "Vault", baseURL: "http://127.0.0.1:9", owned: true, token: "srv")
         ])
         XCTAssertEqual(state.snapshotIdentitySeed, Self.identity)

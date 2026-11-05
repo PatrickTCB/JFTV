@@ -1,26 +1,19 @@
 import Foundation
 import VideoToolbox
 
-/// Which media server the user authenticated with. Persisted; defaults to `.plex`
-/// so existing installs keep working without re-auth.
+/// Which media server the user authenticated with. Jellyfin is the only backend.
 enum MediaBackendKind: String, Codable, Sendable {
-    case plex
     case jellyfin
-    case emby
 
-    /// How the server is named back to the user. Error copy says "Emby returned 404",
-    /// not "Plex returned 404", which is what a Jellyfin or Emby user used to be told
-    /// because every message was written for the one backend that shipped first.
+    /// How the server is named back to the user in error copy and Settings.
     var displayName: String {
         switch self {
-        case .plex:     return "Plex"
         case .jellyfin: return "Jellyfin"
-        case .emby:     return "Emby"
         }
     }
 }
 
-/// Abstraction over a media server the app can tune into (Plex, Jellyfin, …).
+/// Abstraction over a media server the app can tune into (Jellyfin).
 ///
 /// Everything downstream of this boundary — channel building, enrichment, scheduling,
 /// snapshots, playback — operates on the generic `PlexMediaItem` and `channels.json`

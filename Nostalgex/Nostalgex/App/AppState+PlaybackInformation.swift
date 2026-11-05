@@ -9,9 +9,7 @@ extension AppState {
             backend = .demo
         } else {
             switch backendKind {
-            case .plex: backend = .plex
             case .jellyfin: backend = .jellyfin
-            case .emby: backend = .emby
             }
         }
         playbackInformation = PlaybackInformation(

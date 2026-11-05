@@ -23,8 +23,6 @@ struct RootView: View {
             Group {
                 if reproAppReviewFlow {
                     TunerView(navigationPath: $navigationPath)
-                } else if appState.needsServerSelection {
-                    ServerPickerView()
                 } else if appState.needsLibrarySelection {
                     LibrarySelectionView()
                 } else if forceSettingsPage {
@@ -101,7 +99,7 @@ struct RootView: View {
             emitLaunchAnalyticsIfNeeded()
             if uiTestInstantAuth {
                 appState.didAttemptCredentialHydration = true
-                appState.startPINAuth()
+                appState.enterDemoMode()
                 return
             }
             InstallDiagnostics.recordLaunch()
@@ -489,125 +487,6 @@ private struct LibraryLoadStepRail: View {
     }
 }
 
-// MARK: - Server picker (multiple Plex servers reachable)
-
-struct ServerPickerView: View {
-    @Environment(AppState.self) var appState
-    @State private var selectedIDs: Set<String> = []
-    @FocusState private var focusedID: String?
-
-    var body: some View {
-        ZStack {
-            Color.black.ignoresSafeArea()
-            HStack(alignment: .center, spacing: 80) {
-                // Left: branding + explanation
-                VStack(alignment: .leading, spacing: 28) {
-                    Image("NostalgexLogo")
-                        .resizable()
-                        .scaledToFit()
-                        .frame(maxWidth: 440)
-
-                    Text("CHOOSE YOUR LIBRARIES")
-                        .font(.custom("DMMono-Medium", size: 40))
-                        .foregroundStyle(.white.opacity(0.9))
-
-                    Text("Your account can reach more than one Plex server. Pick which libraries Nostalgex should build channels from. You can change this later in Settings.")
-                        .font(.custom("DMMono-Regular", size: 22))
-                        .foregroundStyle(.white.opacity(0.45))
-                        .multilineTextAlignment(.leading)
-                        .lineSpacing(4)
-                        // Without this the copy clips to two lines and ellipsises.
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: 560, alignment: .leading)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-                // Right: server list + continue
-                VStack(alignment: .leading, spacing: 24) {
-                    ScrollView(.vertical, showsIndicators: false) {
-                        VStack(spacing: 12) {
-                            ForEach(appState.availableServers) { server in
-                                serverRow(server)
-                            }
-                        }
-                        // The focused row's scaleEffect bulges slightly past its own
-                        // frame; without slack here the ScrollView's own clip flattens
-                        // that bulge at the left/right edges, which is what was making a
-                        // focused row's corners read as square instead of rounded.
-                        .padding(.horizontal, 8)
-                    }
-                    .frame(maxHeight: 560)
-
-                    Button("CONTINUE") {
-                        let chosen = appState.availableServers.filter { selectedIDs.contains($0.machineIdentifier) }
-                        appState.confirmServerSelection(chosen)
-                    }
-                    .buttonStyle(OnboardingButtonStyle(role: .primary))
-                    .disabled(selectedIDs.isEmpty)
-                    .focused($focusedID, equals: "continue")
-                    .accessibilityIdentifier("serverPickerContinue")
-                }
-                .frame(maxWidth: .infinity)
-            }
-            .padding(.horizontal, 100)
-            .padding(.vertical, 60)
-        }
-        .defaultFocus($focusedID, "continue")
-        .onAppear {
-            // Default selection: owned servers, or all if none are owned.
-            let owned = appState.availableServers.filter(\.owned)
-            let defaults = owned.isEmpty ? appState.availableServers : owned
-            selectedIDs = Set(defaults.map(\.machineIdentifier))
-            // The usual choice is already ticked, so the remote starts on CONTINUE: one
-            // press to go on, instead of walking down past every server first.
-            Task { @MainActor in
-                try? await Task.sleep(for: .milliseconds(120))
-                focusedID = "continue"
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func serverRow(_ server: AppState.ServerRef) -> some View {
-        let isOn = selectedIDs.contains(server.machineIdentifier)
-        let isFocused = focusedID == server.machineIdentifier
-        Button {
-            if isOn { selectedIDs.remove(server.machineIdentifier) }
-            else { selectedIDs.insert(server.machineIdentifier) }
-        } label: {
-            // Same focus language as the connect screens: the focused row is a solid cyan
-            // slab with dark text that grows and glows; the rest are dim outlines.
-            HStack(spacing: 16) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(server.name)
-                        .font(.custom("DMMono-Medium", size: 28))
-                        .foregroundStyle(isFocused ? OnboardingPalette.onFocus : (isOn ? .white : .white.opacity(0.55)))
-                    Text(server.owned ? "Your server" : "Shared with you")
-                        .font(.custom("DMMono-Regular", size: 18))
-                        .foregroundStyle(isFocused ? OnboardingPalette.onFocus.opacity(0.75) : .white.opacity(0.4))
-                }
-                Spacer()
-                Text(isOn ? "INCLUDED" : "OFF")
-                    .font(.custom("DMMono-Medium", size: 22))
-                    .foregroundStyle(isFocused ? OnboardingPalette.onFocus : (isOn ? OnboardingPalette.cyan : .white.opacity(0.35)))
-            }
-            .padding(.horizontal, 32)
-            .padding(.vertical, 24)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 22, style: .continuous).fill(
-                isFocused ? OnboardingPalette.cyan : .white.opacity(0.03)))
-            .overlay(RoundedRectangle(cornerRadius: 22, style: .continuous).strokeBorder(
-                isFocused ? .clear : .white.opacity(0.18), lineWidth: 1.5))
-            .shadow(color: OnboardingPalette.cyan.opacity(isFocused ? 0.5 : 0), radius: 18)
-            .scaleEffect(isFocused ? 1.04 : 1.0)
-            .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-            .animation(.easeOut(duration: 0.14), value: isFocused)
-        }
-        .buttonStyle(PickerRowButtonStyle())
-        .focused($focusedID, equals: server.machineIdentifier)
-    }
-}
-
 /// tvOS button style that suppresses the default white focus halo so we can draw our
 /// own cyan-bordered focus state (matching the rest of the app).
 private struct PickerRowButtonStyle: ButtonStyle {
@@ -620,11 +499,9 @@ private struct PickerRowButtonStyle: ButtonStyle {
 
 // MARK: - Library selection (I-054): more than one library section to choose from
 
-/// Shown once per sign-in, right after server selection (or right after connect for
-/// Jellyfin/Emby, which never show `ServerPickerView`) and before the first scan. Same
-/// two-column layout as `ServerPickerView` on purpose, same screen family, one step
-/// later in the same flow. Default is every section ON: this is opting a library OUT,
-/// not opting one in, so leaving without touching anything still builds a full guide.
+/// Shown once per sign-in, right after connect and before the first scan. Default is
+/// every section ON: this is opting a library OUT, not opting one in, so leaving
+/// without touching anything still builds a full guide.
 struct LibrarySelectionView: View {
     @Environment(AppState.self) var appState
     @State private var includedIDs: Set<String> = []
@@ -701,8 +578,8 @@ struct LibrarySelectionView: View {
     private func sectionRow(_ section: LibrarySectionRef) -> some View {
         let isOn = includedIDs.contains(section.id)
         let isFocused = focusedID == section.id
-        // Only worth naming the server when more than one is in play (Plex multi-server);
-        // Jellyfin/Emby and single-server Plex just show the library's own kind.
+        // Only worth naming the server when more than one is in play; a single
+        // server just shows the library's own kind.
         let multiServer = Set(appState.pendingLibrarySections.map(\.serverID)).count > 1
         Button {
             if isOn { includedIDs.remove(section.id) }

@@ -5,7 +5,7 @@ import XCTest
 final class PlaybackInformationTests: XCTestCase {
     private func information(generation: Int = 1, quality: StreamQuality = .low,
                              video: String? = "hevc", audio: String? = "dts") -> PlaybackInformation {
-        PlaybackInformation(generation: generation, backend: .plex, qualityAtTune: quality,
+        PlaybackInformation(generation: generation, backend: .jellyfin, qualityAtTune: quality,
                             source: .init(videoCodec: video, audioCodec: audio))
     }
 
@@ -140,7 +140,7 @@ final class PlaybackInformationOwnershipTests: XCTestCase {
 
     func testClearingTheCurrentProgramDropsInformation() {
         let state = AppState(credentialStore: NoCredentials())
-        state.playbackInformation = PlaybackInformation(generation: 1, backend: .emby, qualityAtTune: .auto,
+        state.playbackInformation = PlaybackInformation(generation: 1, backend: .jellyfin, qualityAtTune: .auto,
                                                         source: .init(videoCodec: "hevc", audioCodec: "aac"))
         state.currentItem = nil
         XCTAssertNil(state.playbackInformation)
@@ -150,7 +150,7 @@ final class PlaybackInformationOwnershipTests: XCTestCase {
     func testRetiredPlaybackOwnerCannotPublishReadyWhileItsOldPlayerIsStillInstalled() {
         let state = AppState(credentialStore: NoCredentials())
         state.loadGeneration = 5
-        state.playbackInformation = PlaybackInformation(generation: 5, backend: .plex, qualityAtTune: .high,
+        state.playbackInformation = PlaybackInformation(generation: 5, backend: .jellyfin, qualityAtTune: .high,
                                                         source: .init(videoCodec: "h264", audioCodec: "aac"))
         let playerItem = AVPlayerItem(asset: AVMutableComposition())
         state.player = AVPlayer(playerItem: playerItem)

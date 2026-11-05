@@ -230,7 +230,7 @@ final class MovieLibraryScaleHarness: XCTestCase {
         let state = AppState(credentialStore: InMemoryStore())
         state.enrichmentService.seedCache(fixture.enrichments)
         state.backendOverride = { _ in backend }
-        state.completePlexSignIn(token: "plex-account-token", servers: [server])
+        state.completeSignIn(token: "plex-account-token", servers: [server])
         let loadStart = rec.now()
         await state.loadLibrary()
         let loadSeconds = rec.now() - loadStart
@@ -359,7 +359,7 @@ final class MovieLibraryScaleHarness: XCTestCase {
         let state = AppState(credentialStore: InMemoryStore())
         state.enrichmentService.seedCache(fixture.enrichments)
         state.backendOverride = { _ in backend }
-        state.completePlexSignIn(token: "plex-account-token", servers: [server])
+        state.completeSignIn(token: "plex-account-token", servers: [server])
 
         guard let window = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene })
             .flatMap(\.windows).first(where: \.isKeyWindow) ?? UIApplication.shared.connectedScenes
@@ -458,7 +458,7 @@ final class MovieLibraryScaleHarness: XCTestCase {
         let server = AppState.ServerRef(machineIdentifier: serverID, name: "FakeEmby", baseURL: url, owned: true, token: "token")
         let state = AppState(credentialStore: InMemoryStore())
         state.backendOverride = { _ in emby }
-        state.completePlexSignIn(token: "token", servers: [server])
+        state.completeSignIn(token: "token", servers: [server])
 
         let t0 = Date()
         let sampler = Task { @MainActor in

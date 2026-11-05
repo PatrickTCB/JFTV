@@ -112,7 +112,7 @@ final class LibrarySelectionTests: XCTestCase {
         )
         let state = AppState(credentialStore: store)
         state.backendOverride = { _ in backend }
-        state.completePlexSignIn(token: "acct", servers: [server])
+        state.completeSignIn(token: "acct", servers: [server])
 
         await state.presentLibrarySelectionOrScan()
 
@@ -129,7 +129,7 @@ final class LibrarySelectionTests: XCTestCase {
         )
         let state = AppState(credentialStore: store)
         state.backendOverride = { _ in backend }
-        state.completePlexSignIn(token: "acct", servers: [server])
+        state.completeSignIn(token: "acct", servers: [server])
 
         await state.presentLibrarySelectionOrScan()
 
@@ -152,7 +152,7 @@ final class LibrarySelectionTests: XCTestCase {
         )
         let state = AppState(credentialStore: store)
         state.backendOverride = { _ in backend }
-        state.completePlexSignIn(token: "acct", servers: [server])
+        state.completeSignIn(token: "acct", servers: [server])
 
         await state.presentLibrarySelectionOrScan()
         XCTAssertTrue(state.needsLibrarySelection)
@@ -182,7 +182,7 @@ final class LibrarySelectionTests: XCTestCase {
         )
         let state = AppState(credentialStore: store)
         state.backendOverride = { _ in backend }
-        state.completePlexSignIn(token: "acct", servers: [server])
+        state.completeSignIn(token: "acct", servers: [server])
         await state.loadLibrary()
         LibrarySnapshotStore.waitForPendingSaves()
 
@@ -219,7 +219,7 @@ final class LibrarySelectionTests: XCTestCase {
         )
         let state = AppState(credentialStore: store)
         state.backendOverride = { _ in backend }
-        state.completePlexSignIn(token: "acct", servers: [server])
+        state.completeSignIn(token: "acct", servers: [server])
         await state.loadLibrary()
         await state.refreshAvailableLibrarySections()
 

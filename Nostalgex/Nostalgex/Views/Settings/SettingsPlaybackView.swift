@@ -7,7 +7,6 @@ struct SettingsPlaybackView: View {
     let focus: FocusState<SettingsFocus?>.Binding
 
     @State private var streamQuality = StreamQuality.current
-    @AppStorage(LocalPlexOriginalQuality.storageKey, store: AppDefaults.standard) private var localOriginalVideo = false
     @State private var showStreamQualityPicker = false
     @State private var showSubtitleLanguagePicker = false
     @State private var showAudioLanguagePicker = false
@@ -103,9 +102,7 @@ struct SettingsPlaybackView: View {
 
                 SettingsToggleRow(
                     title: "SHOW NOW PLAYING ON \(appState.backendDisplayName.uppercased())",
-                    subtitle: appState.backendKind == .plex
-                        ? "Show the current program on Plex. Leave Mark Watched off to keep watch history unchanged."
-                        : "Show the current program. Prior watch state is restored when playback ends; a working connection is required.",
+                    subtitle: "Show the current program. Prior watch state is restored when playback ends; a working connection is required.",
                     isOn: appState.showNowPlaying,
                     isFocused: isFocused("now_playing_sync")
                 ) {
@@ -127,7 +124,7 @@ struct SettingsPlaybackView: View {
             }
         }
         .sheet(isPresented: $showStreamQualityPicker) {
-            StreamQualityPickerSheet(selected: streamQuality, allowsOriginal: appState.backendKind == .plex) { picked in
+            StreamQualityPickerSheet(selected: streamQuality) { picked in
                 if picked != streamQuality {
                     Analytics.track(.settingChanged(key: "stream_quality", value: picked.rawValue))
                 }
@@ -152,8 +149,7 @@ struct SettingsPlaybackView: View {
 
     /// Upper case, like every other row's value.
     private var streamQualityLabel: String {
-        let label = localOriginalVideo && appState.backendKind == .plex ? "Original (local Plex)" : streamQuality.displayName
-        return label.uppercased()
+        streamQuality.displayName.uppercased()
     }
 
     private var subtitleModeLabel: String {

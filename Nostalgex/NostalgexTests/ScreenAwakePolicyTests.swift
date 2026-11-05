@@ -70,7 +70,8 @@ final class ScreenAwakeAppStateTests: XCTestCase {
 
     private func signedInState() -> AppState {
         let state = AppState(credentialStore: MemoryCredentials())
-        state.backendKind = .plex
+        state.backendKind = .jellyfin
+        state.serverURL = "https://jf.local"
         state.token = "t"
         XCTAssertTrue(state.hasCredentials)
         return state

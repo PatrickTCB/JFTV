@@ -10,19 +10,19 @@ final class AnalyticsGateTests: XCTestCase {
         AnalyticsChannelDescriptor(kind: .static, channelID: id, channelName: "CH \(id)", bundle: "nostalgex")
     }
 
-    private func tuned(_ id: Int, _ method: AnalyticsTuneMethod = .next, _ backend: AnalyticsBackend = .plex) -> AnalyticsEvent {
+    private func tuned(_ id: Int, _ method: AnalyticsTuneMethod = .next, _ backend: AnalyticsBackend = .jellyfin) -> AnalyticsEvent {
         .channelTuned(channelNumber: id, backend: backend, method: method, channel: channel(id))
     }
 
     private func ready(_ id: Int, _ delivery: AnalyticsPlaybackDelivery = .directPlay) -> AnalyticsEvent {
-        .playbackReady(channelNumber: id, backend: .plex, delivery: delivery, channel: channel(id))
+        .playbackReady(channelNumber: id, backend: .jellyfin, delivery: delivery, channel: channel(id))
     }
 
     private func stopped(_ id: Int, _ seconds: Double, _ delivery: AnalyticsPlaybackDelivery = .directPlay) -> AnalyticsEvent {
-        .playbackStopped(channelNumber: id, backend: .plex, delivery: delivery, channel: channel(id), activeWatchSeconds: seconds)
+        .playbackStopped(channelNumber: id, backend: .jellyfin, delivery: delivery, channel: channel(id), activeWatchSeconds: seconds)
     }
 
-    private func error(_ code: AnalyticsPlaybackErrorCode, _ backend: AnalyticsBackend = .emby) -> AnalyticsEvent {
+    private func error(_ code: AnalyticsPlaybackErrorCode, _ backend: AnalyticsBackend = .jellyfin) -> AnalyticsEvent {
         .playbackError(channelNumber: 3, backend: backend, code: code)
     }
 
@@ -72,7 +72,7 @@ final class AnalyticsGateTests: XCTestCase {
         guard case .sessionEnded(_, let summary?) = sent.last else { return XCTFail("no summary") }
         XCTAssertEqual(summary.tunes, 200)
         XCTAssertEqual(summary.playbackStarts, 200)
-        XCTAssertEqual(summary.backend, "plex")
+        XCTAssertEqual(summary.backend, "jellyfin")
         XCTAssertEqual(summary.wireParameters["tunes"], "51-200")
         XCTAssertEqual(summary.wireParameters["playbackStarts"], "51-200")
         XCTAssertEqual(summary.suppressed, 198 + 199 + 197) // held back: tunes, readies, short stays
@@ -102,7 +102,7 @@ final class AnalyticsGateTests: XCTestCase {
         for i in 0..<720 {
             events.append((Double(i) * 5, error(.playerFailed)))
             events.append((Double(i) * 5, error(.playerFailed)))   // retry path sends it twice
-            events.append((Double(i) * 5 + 1, .playbackTranscodeFallback(channelNumber: 3, backend: .emby)))
+            events.append((Double(i) * 5 + 1, .playbackTranscodeFallback(channelNumber: 3, backend: .jellyfin)))
         }
         events.append((3599, error(.noPlayableSource)))
         let sent = run(&gate, events)
@@ -114,13 +114,13 @@ final class AnalyticsGateTests: XCTestCase {
         guard case .sessionEnded(_, let summary?) = end.last else { return XCTFail("no summary") }
         XCTAssertEqual(summary.playbackErrors, 1441)
         XCTAssertEqual(summary.wireParameters["playbackErrors"], "201+")
-        XCTAssertEqual(summary.backend, "emby")
+        XCTAssertEqual(summary.backend, "jellyfin")
     }
 
     func testSameErrorOnAnotherBackendIsItsOwnKind() {
         var gate = AnalyticsGate()
-        let sent = run(&gate, [(0, error(.stalled, .plex)), (1, error(.stalled, .jellyfin)), (2, error(.stalled, .plex))])
-        XCTAssertEqual(sent.compactMap { $0.parameters["backend"] }, ["plex", "jellyfin"])
+        let sent = run(&gate, [(0, error(.stalled, .demo)), (1, error(.stalled, .jellyfin)), (2, error(.stalled, .demo))])
+        XCTAssertEqual(sent.compactMap { $0.parameters["backend"] }, ["demo", "jellyfin"])
     }
 
     // MARK: - Channel stays
@@ -172,7 +172,7 @@ final class AnalyticsGateTests: XCTestCase {
         var gate = AnalyticsGate()
         var events: [(TimeInterval, AnalyticsEvent)] = []
         for i in 0..<30 { events.append((Double(i), .settingChanged(key: "bundle:b\(i)", value: "true"))) }
-        for i in 0..<9 { events.append((40 + Double(i), .connectFailed(backend: .plex, reason: "r\(i)"))) }
+        for i in 0..<9 { events.append((40 + Double(i), .connectFailed(backend: .jellyfin, reason: "r\(i)"))) }
         for _ in 0..<3 { events.append((60, .rateTapped)) }
         events.append((61, .settingChanged(key: "bundle:b0", value: "true")))   // duplicate kind
         let sent = run(&gate, events)
@@ -186,20 +186,20 @@ final class AnalyticsGateTests: XCTestCase {
         var events: [(TimeInterval, AnalyticsEvent)] = []
         for i in 0..<20 {
             events.append((Double(i), .settingChanged(key: "k\(i)", value: "v")))
-            events.append((Double(i), .connectStarted(backend: .plex, method: .pin)))
+            events.append((Double(i), .connectStarted(backend: .jellyfin, method: .quickConnect)))
             events.append((Double(i), .libraryLoadCompleted(channelCount: i, itemCount: i, background: true, durationMs: i, partial: false)))
             events.append((Double(i), .libraryLoadFailed(reason: "r\(i)", background: false)))
-            events.append((Double(i), .connectFailed(backend: .emby, reason: "r\(i)")))
+            events.append((Double(i), .connectFailed(backend: .jellyfin, reason: "r\(i)")))
             events.append((Double(i), .credentialsSignInLost(code: "\(i)")))
             for code in [AnalyticsPlaybackErrorCode.noPlayableSource, .stalled, .playerFailed, .watchdogSkip, .transcodingUnavailable] {
-                events.append((Double(i), error(code, [.plex, .jellyfin, .emby][i % 3])))
+                events.append((Double(i), error(code, [.jellyfin, .demo][i % 2])))
             }
             events.append((Double(i), .settingChanged(key: "x\(i)", value: "v")))
             events.append((Double(i), .libraryLoadStarted(background: i % 2 == 0, firstLoad: i % 4 == 0)))
             events.append((Double(i), .connectCompleted(backend: .jellyfin, serverCount: i)))
-            events.append((Double(i), tuned(i + 1, [.guide, .next, .previous, .miniStrip][i % 4], [.plex, .jellyfin, .emby][i % 3])))
+            events.append((Double(i), tuned(i + 1, [.guide, .next, .previous, .miniStrip][i % 4], [.jellyfin, .demo][i % 2])))
             events.append((Double(i), ready(i + 1, i % 2 == 0 ? .directPlay : .transcode)))
-            events.append((Double(i), .connectCancelled(backend: [.plex, .jellyfin, .emby][i % 3], method: [.pin, .password, .quickConnect][i % 3])))
+            events.append((Double(i), .connectCancelled(backend: [.jellyfin, .demo][i % 2], method: [.password, .quickConnect][i % 2])))
             events.append((Double(i), .libraryLoadAbandoned(background: false, itemsFound: i, userInitiated: true)))
             events.append((Double(i), .libraryRefreshBackgroundFailed(reason: "r\(i)")))
         }
@@ -272,7 +272,7 @@ final class AnalyticsGateTests: XCTestCase {
         for event in run(&gate, input) where event.name != "app.session.ended" {
             XCTAssertTrue(Set(event.parameters.keys).isSubset(of: allowedByName[event.name] ?? []), event.name)
         }
-        XCTAssertEqual(Set(AnalyticsSessionSummary(tunes: 1, backend: "plex").wireParameters.keys),
+        XCTAssertEqual(Set(AnalyticsSessionSummary(tunes: 1, backend: "jellyfin").wireParameters.keys),
                        ["tunes", "playbackStarts", "playbackErrors", "suppressed", "backend"])
     }
 }
@@ -298,7 +298,7 @@ final class AnalyticsFacadeGateTests: XCTestCase {
         let spy = RecordingAnalytics()
         Analytics.configure(with: spy)
         for i in 1...200 {
-            Analytics.track(.channelTuned(channelNumber: i, backend: .plex, method: .next,
+            Analytics.track(.channelTuned(channelNumber: i, backend: .jellyfin, method: .next,
                                           channel: AnalyticsChannelDescriptor(kind: .static, channelID: i, channelName: nil, bundle: "nostalgex")))
         }
         XCTAssertEqual(spy.events.count, 1)

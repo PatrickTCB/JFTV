@@ -149,17 +149,7 @@ enum WatchCleanupStep: Equatable, Sendable {
 }
 
 enum WatchCleanupPlan {
-    /// Plex. `countedWatch` means this session scrobbled (the 15% / 75% gate passed).
-    /// Reports carry no position, so a surf leaves nothing to undo and the item's own
-    /// resume point, play count and Continue Watching entry are never touched. An episode
-    /// scrobble puts the NEXT episode in Continue Watching; take that out unless the show
-    /// was already there. Unknown prior: leave it, rather than remove a row the user had.
-    static func plex(prior: PriorWatchState?, countedWatch: Bool) -> [WatchCleanupStep] {
-        guard countedWatch, let prior, let show = prior.showKey, !prior.showInContinueWatching else { return [] }
-        return [.removeShowFromContinueWatching(show)]
-    }
-
-    /// Jellyfin and Emby. Both bump PlayCount on the start report and store the stop
+    /// Jellyfin. Bumps PlayCount on the start report and stores the stop
     /// position, so the restore writes the exact prior values back.
     static func mediaServer(prior: PriorWatchState?, countedWatch: Bool) -> [WatchCleanupStep] {
         // An unreadable baseline must never turn into a destructive resume reset.
@@ -184,95 +174,8 @@ protocol WatchStateGuarding: Sendable {
     func restoreWatchState(for item: PlexMediaItem, prior: PriorWatchState?, countedWatch: Bool) async
 }
 
-struct PlexWatchStateGuard: WatchStateGuarding {
-    static let libraryIdentifier = "com.plexapp.plugins.library"
-
-    let serverURL: String
-    let headers: [String: String]
-    let transport: any ReportTransport
-
-    func request(method: String, path: String, query: [URLQueryItem] = []) -> URLRequest? {
-        guard var components = URLComponents(string: "\(serverURL)\(path)") else { return nil }
-        if !query.isEmpty { components.queryItems = query }
-        guard let url = components.url else { return nil }
-        var req = URLRequest(url: url)
-        req.httpMethod = method
-        headers.forEach { req.setValue($1, forHTTPHeaderField: $0) }
-        return req
-    }
-
-    /// `key` is the bare rating key. `/library/metadata/{rk}` is answered with 404.
-    func scrobbleRequest(ratingKey: String) -> URLRequest? {
-        request(method: "GET", path: "/:/scrobble", query: [
-            .init(name: "key", value: ratingKey),
-            .init(name: "identifier", value: Self.libraryIdentifier),
-        ])
-    }
-
-    func removeFromContinueWatchingRequest(ratingKey: String) -> URLRequest? {
-        request(method: "PUT", path: "/actions/removeFromContinueWatching", query: [
-            .init(name: "ratingKey", value: ratingKey),
-        ])
-    }
-
-    private struct Container: Decodable {
-        struct Inner: Decodable { let Metadata: [Entry]? }
-        struct Entry: Decodable {
-            let ratingKey: String?
-            let type: String?
-            let grandparentRatingKey: String?
-        }
-        let MediaContainer: Inner
-    }
-
-    private func entries(_ req: URLRequest?) async -> [Container.Entry]? {
-        guard let req, let (status, body) = await transport.send(req), (200...299).contains(status),
-              let decoded = try? JSONDecoder().decode(Container.self, from: PlexUTF8Repair.prepared(body, context: req.url?.path ?? "?")) else { return nil }
-        return decoded.MediaContainer.Metadata ?? []
-    }
-
-    private func continueWatching() async -> [Container.Entry]? {
-        await entries(request(method: "GET", path: "/hubs/continueWatching/items", query: [
-            .init(name: "count", value: "200"),
-        ]))
-    }
-
-    /// Episodes only: is the show already in Continue Watching before tune-in? Films
-    /// need nothing, so they cost no request.
-    func captureWatchState(for item: PlexMediaItem) async -> PriorWatchState? {
-        guard item.type == .episode,
-              let meta = await entries(request(method: "GET", path: "/library/metadata/\(item.ratingKey)"))?.first,
-              meta.type == "episode", let show = meta.grandparentRatingKey else { return nil }
-        // Unreadable row: assume the show was there, so we never remove a real entry.
-        let inRow = await continueWatching().map { row in
-            row.contains { $0.grandparentRatingKey == show || $0.ratingKey == show }
-        } ?? true
-        return PriorWatchState(resumePosition: 0, playCount: 0, played: false,
-                               showKey: show, showInContinueWatching: inRow)
-    }
-
-    func restoreWatchState(for item: PlexMediaItem, prior: PriorWatchState?, countedWatch: Bool) async {
-        for case .removeShowFromContinueWatching(let show) in WatchCleanupPlan.plex(prior: prior, countedWatch: countedWatch) {
-            // Plex adds the next episode about a second after the scrobble, which can be
-            // the moment before this runs. Look up to three times.
-            for attempt in 0..<3 {
-                let added = (await continueWatching() ?? [])
-                    .filter { $0.grandparentRatingKey == show }
-                    .compactMap(\.ratingKey)
-                for key in added {
-                    guard let req = removeFromContinueWatchingRequest(ratingKey: key) else { continue }
-                    let status = await transport.send(req)?.status
-                    print("[Tracker] cleanup rk=\(item.ratingKey) removeFromContinueWatching next-up rk=\(key) HTTP \(status.map(String.init) ?? "failed")")
-                }
-                if !added.isEmpty || attempt == 2 { break }
-                try? await Task.sleep(nanoseconds: 1_000_000_000)
-            }
-        }
-    }
-}
-
-/// Jellyfin and Emby. Both answer the `/Users/{id}/...` routes (Jellyfin keeps them
-/// for compatibility next to `/UserItems`), measured on Emby 4.10.1 and Jellyfin 12.2.
+/// Jellyfin. Answers the `/Users/{id}/...` routes (kept for compatibility next to
+/// `/UserItems`), measured on Jellyfin 12.2.
 struct MediaServerWatchStateGuard: WatchStateGuarding {
     let serverURL: String
     let authorization: String

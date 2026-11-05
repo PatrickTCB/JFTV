@@ -170,14 +170,16 @@ enum SignInFlow {
         let kind: MediaBackendKind
     }
 
-    /// `/System/Info/Public`. Jellyfin names itself in `ProductName`; Emby 4.x leaves it
-    /// out. A page without an `Id` (a router, a web UI) is not a server.
+    /// `/System/Info/Public`. Jellyfin names itself in `ProductName`. A page without an
+    /// `Id` (a router, a web UI), or a product that isn't Jellyfin, is not a server we
+    /// can use.
     static func parsePublicInfo(_ data: Data) -> PublicInfo? {
         guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let id = (object["Id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
               !id.isEmpty else { return nil }
         let product = (object["ProductName"] as? String ?? "").lowercased()
-        let kind: MediaBackendKind = product.contains("jellyfin") ? .jellyfin : .emby
+        guard product.contains("jellyfin") else { return nil }
+        let kind: MediaBackendKind = .jellyfin
         let rawName = (object["ServerName"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return PublicInfo(id: id, name: rawName.isEmpty ? kind.displayName : rawName, kind: kind)
     }
@@ -236,11 +238,11 @@ enum SignInFlow {
         static let quickConnectTitle = "APPROVE THIS TV IN JELLYFIN"
         static let quickConnectSteps = "On your phone or computer, open Jellyfin, then your profile, then Quick Connect, and enter this code."
         static let waitingForApproval = "WAITING FOR APPROVAL"
-        static let notAServer = "That address answered, but it isn't a Jellyfin or Emby server. Check the port (both use 8096 unless you changed it)."
+        static let notAServer = "That address answered, but it isn't a Jellyfin server. Check the port (Jellyfin uses 8096 unless you changed it)."
         static func switchedKind(_ kind: MediaBackendKind) -> String { "That address is a \(kind.displayName) server, so this is a \(kind.displayName) sign-in." }
 
         static var all: [String] {
-            let kinds: [MediaBackendKind] = [.jellyfin, .emby]
+            let kinds: [MediaBackendKind] = [.jellyfin]
             return kinds.flatMap { [connectTitle($0), findIntro($0), switchedKind($0)] } + [
                 typeAddress, searchAgain, pickServer, addressTitle, addressHint, addressPlaceholder, connect, pressToType,
                 connecting("server"), signInTo, whoIsWatching, someoneElse, username, password, signIn,

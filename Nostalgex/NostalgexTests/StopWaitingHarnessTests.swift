@@ -280,7 +280,7 @@ final class StopWaitingHarnessTests: XCTestCase {
         }
         let sections = serverSpecs.first ?? []
         let state = AppState(credentialStore: InMemoryStore())
-        state.completePlexSignIn(token: "acct", servers: refs)
+        state.completeSignIn(token: "acct", servers: refs)
 
         let started = Date()
         final class Flag { var value = false }
@@ -432,7 +432,7 @@ final class StopWaitingHarnessTests: XCTestCase {
         // Longer than the stall watch's first poll (2s), progressing the whole time.
         let backendB = ScriptedBackend(serverID: "srv-b", items: movieItems("b", 40, serverID: "srv-b"), seconds: 4.4)
         state.backendOverride = { ref in ref?.machineIdentifier == "srv-b" ? backendB : backendA }
-        state.completePlexSignIn(token: "acct", servers: [a, b])
+        state.completeSignIn(token: "acct", servers: [a, b])
 
         await state.loadLibrary()
 
@@ -469,7 +469,7 @@ final class StopWaitingHarnessTests: XCTestCase {
         // B is the real Plex service, so every request it would make reaches the counter.
         let backendB: any MediaBackend = PlexAPIService(serverURL: b.baseURL, token: "b", serverID: "srv-b")
         state.backendOverride = { ref in ref?.machineIdentifier == "srv-b" ? backendB : backendA }
-        state.completePlexSignIn(token: "acct", servers: [a, b])
+        state.completeSignIn(token: "acct", servers: [a, b])
 
         await state.loadLibrary()
         // Anything already sent would have arrived by now.

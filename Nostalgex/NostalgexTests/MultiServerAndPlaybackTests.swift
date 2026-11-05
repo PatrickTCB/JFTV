@@ -81,8 +81,8 @@ final class MultiServerAndPlaybackTests: XCTestCase {
     // MARK: - Composite id (Phase 2d)
 
     func testCompositeID_prefixesWithServerWhenPresent() {
-        XCTAssertEqual(PlexAPIService.compositeID(serverID: "", ratingKey: "12"), "12")
-        XCTAssertEqual(PlexAPIService.compositeID(serverID: "srvA", ratingKey: "12"), "srvA:12")
+        XCTAssertEqual(MediaServerKit.compositeID(serverID: "", ratingKey: "12"), "12")
+        XCTAssertEqual(MediaServerKit.compositeID(serverID: "srvA", ratingKey: "12"), "srvA:12")
     }
 
     // MARK: - Empty-state auto recovery (Phase 1c)

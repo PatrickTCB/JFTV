@@ -17,7 +17,7 @@ struct JellyfinAPIService: MediaBackend, WatchActivityReporting {
 
     /// Stable per-install device id. Reuses the same UUID Plex uses so the value is
     /// consistent across backends on a device.
-    private var deviceID: String { PlexAPIService.clientID }
+    private var deviceID: String { MediaServerKit.clientID }
 
     private static let session: URLSession = {
         let config = URLSessionConfiguration.default
@@ -61,11 +61,11 @@ struct JellyfinAPIService: MediaBackend, WatchActivityReporting {
     }
 
     private static func decode<T: Decodable>(_: T.Type, data: Data, response: URLResponse?) throws -> T {
-        guard let http = response as? HTTPURLResponse else { throw PlexAPIService.APIError.invalidResponse }
-        if http.statusCode == 401 || http.statusCode == 403 { throw PlexAPIService.APIError.unauthorized }
+        guard let http = response as? HTTPURLResponse else { throw MediaServerKit.APIError.invalidResponse }
+        if http.statusCode == 401 || http.statusCode == 403 { throw MediaServerKit.APIError.unauthorized }
         guard (200...299).contains(http.statusCode) else {
             print("[Jellyfin] HTTP \(http.statusCode). Prefix: \(String(data: data.prefix(240), encoding: .utf8) ?? "?")")
-            throw PlexAPIService.APIError.httpFailure(statusCode: http.statusCode)
+            throw MediaServerKit.APIError.httpFailure(statusCode: http.statusCode)
         }
         return try JSONDecoder().decode(T.self, from: data)
     }
@@ -75,7 +75,7 @@ struct JellyfinAPIService: MediaBackend, WatchActivityReporting {
     private static func decodeSignIn<T: Decodable>(_ type: T.Type, data: Data, response: URLResponse?) throws -> T {
         if let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode),
            SignInRequest.looksLikeMarkup(data) {
-            throw PlexAPIService.APIError.receivedMarkupInsteadOfJSON(statusCode: http.statusCode)
+            throw MediaServerKit.APIError.receivedMarkupInsteadOfJSON(statusCode: http.statusCode)
         }
         return try decode(type, data: data, response: response)
     }
@@ -84,7 +84,7 @@ struct JellyfinAPIService: MediaBackend, WatchActivityReporting {
 
     func testConnection() async throws -> String {
         guard let url = URL(string: "\(serverURL)/System/Info/Public") else {
-            throw PlexAPIService.APIError.invalidResponse
+            throw MediaServerKit.APIError.invalidResponse
         }
         var req = URLRequest(url: url)
         req.setValue("application/json", forHTTPHeaderField: "Accept")
@@ -97,7 +97,7 @@ struct JellyfinAPIService: MediaBackend, WatchActivityReporting {
 
     func loadSections() async throws -> [PlexSection] {
         guard let req = request(path: "/UserViews", queryItems: [.init(name: "userId", value: userId)]) else {
-            throw PlexAPIService.APIError.invalidResponse
+            throw MediaServerKit.APIError.invalidResponse
         }
         let (data, response) = try await Self.session.data(for: req)
         let views = try Self.decode(ItemsResponse.self, data: data, response: response).Items ?? []
@@ -215,7 +215,7 @@ struct JellyfinAPIService: MediaBackend, WatchActivityReporting {
                 .init(name: "SortBy", value: "SortName"),
             ]
             guard let req = request(path: "/Items", queryItems: queryItems) else {
-                throw PlexAPIService.APIError.invalidResponse
+                throw MediaServerKit.APIError.invalidResponse
             }
             let data: Data
             let response: URLResponse
@@ -249,7 +249,7 @@ struct JellyfinAPIService: MediaBackend, WatchActivityReporting {
     /// Mirrors the Plex TV path: list series, then fetch each series' episodes in
     /// batches, stamping the series' provider IDs/genres onto every episode (episodes
     /// rarely carry their own TMDB id, and channel rules key off the series).
-    private func fetchShowsSection(_ section: PlexSection, onBatch: PlexAPIService.ShowProgress? = nil) async throws -> [PlexMediaItem] {
+    private func fetchShowsSection(_ section: PlexSection, onBatch: MediaServerKit.ShowProgress? = nil) async throws -> [PlexMediaItem] {
         let series = try await fetchAllItems(parentId: section.key, includeItemTypes: "Series")
         var results: [PlexMediaItem] = []
         let batchSize = 10
@@ -284,7 +284,7 @@ struct JellyfinAPIService: MediaBackend, WatchActivityReporting {
                 let e = ep.IndexNumber.map { "E\(String(format: "%02d", $0))" } ?? ""
                 let source = JellyfinItem.bestMediaSource(ep.MediaSources)
                 return PlexMediaItem(
-                    id: PlexAPIService.compositeID(serverID: serverID, ratingKey: ep.Id),
+                    id: MediaServerKit.compositeID(serverID: serverID, ratingKey: ep.Id),
                     title: show.Name ?? ep.SeriesName ?? "",
                     artist: nil,
                     episodeTitle: ep.Name,
@@ -350,7 +350,7 @@ struct JellyfinAPIService: MediaBackend, WatchActivityReporting {
         let title = isMusicVideo ? parsed.song : (item.Name ?? "")
         let artist = isMusicVideo ? parsed.artist : nil
         var built = PlexMediaItem(
-            id: PlexAPIService.compositeID(serverID: serverID, ratingKey: item.Id),
+            id: MediaServerKit.compositeID(serverID: serverID, ratingKey: item.Id),
             title: title,
             artist: artist,
             episodeTitle: nil,
@@ -429,7 +429,7 @@ struct JellyfinAPIService: MediaBackend, WatchActivityReporting {
             .init(name: "SortBy", value: "SortName"),
         ]
         guard let req = request(path: "/Items", queryItems: queryItems) else {
-            throw PlexAPIService.APIError.invalidResponse
+            throw MediaServerKit.APIError.invalidResponse
         }
         let (data, response) = try await Self.session.data(for: req)
         let page = try Self.decode(ItemsResponse.self, data: data, response: response)
@@ -455,7 +455,7 @@ struct JellyfinAPIService: MediaBackend, WatchActivityReporting {
 
     // MARK: - Stream URLs
 
-    // Mirror the AVPlayer-native capability sets used by PlexAPIService.
+    // Mirror the AVPlayer-native capability sets used by MediaServerKit.
     private static let supportedAudioCodecs: Set<String> = ["aac", "ac3", "eac3", "mp3", "alac", "flac"]
     private static let directPlayContainers: Set<String> = ["mp4", "mov", "m4v"]
 
@@ -476,7 +476,7 @@ struct JellyfinAPIService: MediaBackend, WatchActivityReporting {
         // default): sound over a black picture. The library listing does not carry the tag,
         // so let PlaybackInfo decide. Its profile requires hvc1: the server direct-plays what
         // it knows is hvc1 and remuxes the rest (video copied) into HLS tagged hvc1.
-        if PlexAPIService.needsServerRemux(container: item.container, videoCodec: item.videoCodec) {
+        if MediaServerKit.needsServerRemux(container: item.container, videoCodec: item.videoCodec) {
             return nil
         }
         if let audioCodec = item.audioCodec?.lowercased(), !Self.supportedAudioCodecs.contains(audioCodec) {
@@ -725,20 +725,20 @@ struct JellyfinAPIService: MediaBackend, WatchActivityReporting {
     /// Username/password auth against a specific server URL.
     static func authenticate(serverURL: String, username: String, password: String) async throws -> AuthResult {
         guard let url = URL(string: "\(serverURL)/Users/AuthenticateByName") else {
-            throw PlexAPIService.APIError.invalidResponse
+            throw MediaServerKit.APIError.invalidResponse
         }
         var req = URLRequest(url: url)
         req.timeoutInterval = SignInRequest.timeout
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Accept")
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.setValue(authorizationHeader(deviceID: PlexAPIService.clientID, token: ""), forHTTPHeaderField: "Authorization")
+        req.setValue(authorizationHeader(deviceID: MediaServerKit.clientID, token: ""), forHTTPHeaderField: "Authorization")
         req.httpBody = try JSONEncoder().encode(["Username": username, "Pw": password])
 
         let (data, response) = try await session.data(for: req)
         let result = try decodeSignIn(AuthenticationResult.self, data: data, response: response)
         guard let token = result.AccessToken, let uid = result.User?.Id else {
-            throw PlexAPIService.APIError.unauthorized
+            throw MediaServerKit.APIError.unauthorized
         }
         return AuthResult(accessToken: token, userId: uid,
                           serverID: result.ServerId ?? "", serverName: result.User?.ServerName ?? "Jellyfin Server")
@@ -765,13 +765,13 @@ struct JellyfinAPIService: MediaBackend, WatchActivityReporting {
 
     static func quickConnectInitiate(serverURL: String, send: SignInSend) async throws -> QuickConnectInit {
         guard let url = URL(string: "\(serverURL)/QuickConnect/Initiate") else {
-            throw PlexAPIService.APIError.invalidResponse
+            throw MediaServerKit.APIError.invalidResponse
         }
         var req = URLRequest(url: url)
         req.timeoutInterval = SignInRequest.timeout
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Accept")
-        req.setValue(authorizationHeader(deviceID: PlexAPIService.clientID, token: ""), forHTTPHeaderField: "Authorization")
+        req.setValue(authorizationHeader(deviceID: MediaServerKit.clientID, token: ""), forHTTPHeaderField: "Authorization")
         var (data, response) = try await send(req)
         if let status = (response as? HTTPURLResponse)?.statusCode,
            quickConnectInitiateRetriesWithGET(statusCode: status) {
@@ -780,7 +780,7 @@ struct JellyfinAPIService: MediaBackend, WatchActivityReporting {
         }
         let decoded = try decodeSignIn(QuickConnectResult.self, data: data, response: response)
         guard let code = decoded.Code, let secret = decoded.Secret else {
-            throw PlexAPIService.APIError.invalidResponse
+            throw MediaServerKit.APIError.invalidResponse
         }
         return QuickConnectInit(code: code, secret: secret)
     }
@@ -788,14 +788,14 @@ struct JellyfinAPIService: MediaBackend, WatchActivityReporting {
     /// Polls once; returns true when the user has approved the code.
     static func quickConnectCheck(serverURL: String, secret: String) async throws -> Bool {
         guard var components = URLComponents(string: "\(serverURL)/QuickConnect/Connect") else {
-            throw PlexAPIService.APIError.invalidResponse
+            throw MediaServerKit.APIError.invalidResponse
         }
         components.queryItems = [.init(name: "Secret", value: secret)]
-        guard let url = components.url else { throw PlexAPIService.APIError.invalidResponse }
+        guard let url = components.url else { throw MediaServerKit.APIError.invalidResponse }
         var req = URLRequest(url: url)
         req.timeoutInterval = SignInRequest.timeout
         req.setValue("application/json", forHTTPHeaderField: "Accept")
-        req.setValue(authorizationHeader(deviceID: PlexAPIService.clientID, token: ""), forHTTPHeaderField: "Authorization")
+        req.setValue(authorizationHeader(deviceID: MediaServerKit.clientID, token: ""), forHTTPHeaderField: "Authorization")
         let (data, response) = try await session.data(for: req)
         return (try decodeSignIn(QuickConnectResult.self, data: data, response: response).Authenticated) ?? false
     }
@@ -803,19 +803,19 @@ struct JellyfinAPIService: MediaBackend, WatchActivityReporting {
     /// Exchanges an approved Quick Connect secret for an access token.
     static func quickConnectAuthenticate(serverURL: String, secret: String) async throws -> AuthResult {
         guard let url = URL(string: "\(serverURL)/Users/AuthenticateWithQuickConnect") else {
-            throw PlexAPIService.APIError.invalidResponse
+            throw MediaServerKit.APIError.invalidResponse
         }
         var req = URLRequest(url: url)
         req.timeoutInterval = SignInRequest.timeout
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Accept")
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.setValue(authorizationHeader(deviceID: PlexAPIService.clientID, token: ""), forHTTPHeaderField: "Authorization")
+        req.setValue(authorizationHeader(deviceID: MediaServerKit.clientID, token: ""), forHTTPHeaderField: "Authorization")
         req.httpBody = try JSONEncoder().encode(["Secret": secret])
         let (data, response) = try await session.data(for: req)
         let result = try decodeSignIn(AuthenticationResult.self, data: data, response: response)
         guard let token = result.AccessToken, let uid = result.User?.Id else {
-            throw PlexAPIService.APIError.unauthorized
+            throw MediaServerKit.APIError.unauthorized
         }
         return AuthResult(accessToken: token, userId: uid,
                           serverID: result.ServerId ?? "", serverName: result.User?.ServerName ?? "Jellyfin Server")
@@ -898,7 +898,7 @@ struct JellyfinItem: Decodable {
             let Height: Int?
             let BitDepth: Int?
             /// Emby only: "DoviProfile50", "DoviProfile81", "Hdr10", "None". Jellyfin does
-            /// not send it. See `EmbyAPIService.doviProfile(extendedVideoSubType:)`.
+            /// not send it. See `MediaServerKit.doviProfile(extendedVideoSubType:)`.
             let ExtendedVideoSubType: String?
 
             enum CodingKeys: String, CodingKey {

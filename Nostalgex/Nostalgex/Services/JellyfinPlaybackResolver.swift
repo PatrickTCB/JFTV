@@ -87,36 +87,6 @@ extension JellyfinPlaybackResolver {
         return components.url
     }
 
-    /// Emby only: the HLS segment format to ask for. MPEG-TS whenever the stream's video can
-    /// only come out as H.264, fMP4 only when it may come out as HEVC, which AVPlayer will
-    /// not render from TS.
-    ///
-    /// Why: on Emby, every mid-programme join restarts the encode at the join segment (the
-    /// client seek; asking for the start time up front restarts it too, see
-    /// `offsetPlayback`). When the video is copied and the audio is not (DTS, TrueHD, FLAC
-    /// and other sources AVPlayer cannot decode), the copied video starts at the keyframe
-    /// before the join point and the audio exactly at it. fMP4 stamps both tracks from zero
-    /// and records the gap only in the init segment's edit list, which AVPlayer does not
-    /// apply, so the sound runs early by up to a whole GOP for the rest of the programme
-    /// and never catches up. TS segments carry the source timestamps, so the player lines
-    /// the tracks up itself. Measured on a Mac with AVPlayer against Emby 4.10.1.0
-    /// (2026-10-16), joining at 247 s, sound minus picture: H.264 + DTS (2 s GOP) -1720 ms
-    /// on fMP4, +35 ms on TS; H.264 + FLAC (5 s GOP) -731 / +24 ms; H.264 + TrueHD (10.4 s
-    /// GOP) about -6.2 s / +24 ms; the same files played from the start, +25 to +36 ms.
-    /// Asking Emby not to copy the video was rejected: it puts the gap the other way round
-    /// when the audio is copied (H.264 + AC3, +1829 ms) and fails outright on 10-bit
-    /// sources on Emby 4.10.1.0.
-    ///
-    /// An unknown codec on an HEVC-capable device keeps fMP4, which is what every stream
-    /// used before. HEVC copied into fMP4 still has the offset (H.265 + DTS -1720 ms,
-    /// 10-bit H.265 + TrueHD -1731 ms, on Emby 4.8, 4.9 and 4.10). Jellyfin does not need
-    /// this: the same fMP4 join measured in sync on Jellyfin 12.2.0 (+35 ms, +24 ms).
-    static func embySegmentContainer(videoCodec: String?, supportsHEVC: Bool) -> String {
-        let codec = videoCodec?.lowercased() ?? ""
-        let mayBeHEVC = supportsHEVC && (codec.isEmpty || codec == "hevc" || codec == "h265")
-        return mayBeHEVC ? "mp4" : "ts"
-    }
-
     /// The video codecs a server stream may carry. TS is H.264 only: offering HEVC there
     /// would let the server copy HEVC into TS, which plays as sound over a black picture.
     static func transcodeVideoCodecs(supportsHEVC: Bool, segmentContainer: String) -> String {
@@ -632,10 +602,10 @@ enum JellyfinPlaybackResolver {
     }
 
     private static func decodePlaybackInfo(_ data: Data, _ response: URLResponse) throws -> PlaybackInfoResponse {
-        guard let http = response as? HTTPURLResponse else { throw PlexAPIService.APIError.invalidResponse }
-        if http.statusCode == 401 || http.statusCode == 403 { throw PlexAPIService.APIError.unauthorized }
+        guard let http = response as? HTTPURLResponse else { throw MediaServerKit.APIError.invalidResponse }
+        if http.statusCode == 401 || http.statusCode == 403 { throw MediaServerKit.APIError.unauthorized }
         guard (200...299).contains(http.statusCode) else {
-            throw PlexAPIService.APIError.httpFailure(statusCode: http.statusCode)
+            throw MediaServerKit.APIError.httpFailure(statusCode: http.statusCode)
         }
         return try JSONDecoder().decode(PlaybackInfoResponse.self, from: data)
     }

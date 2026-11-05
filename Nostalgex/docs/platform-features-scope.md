@@ -18,7 +18,7 @@ rating prompt (no API exists on tvOS).
 The hard part is already done. `DailyManifestFile` (`Services/DailyManifestStore.swift`)
 persists `blocks: [StoredManifestBlock]`, each carrying `ratingKey`, `startUnix` and
 `endUnix`, per channel per day. "What is on channel 12 right now" is a time lookup
-against a file on disk. No network, no library scan, no Plex round-trip. That is
+against a file on disk. No network, no library scan, no server round-trip. That is
 exactly the shape a Top Shelf provider needs.
 
 What is missing is plumbing, and it is the invasive kind:

@@ -108,11 +108,7 @@ extension AppState {
         Analytics.track(.libraryLoadStarted(background: background && !channels.isEmpty, firstLoad: isFirstLibraryLoad))
 
         if !isUITestStubLibrarySuccess {
-            if !background { isLoading = true; loadingMessage = "FINDING YOUR SERVERS..." }
-            guard await recoverPlexServersIfNeeded() else {
-                isLoading = false
-                return
-            }
+            if !background { isLoading = true; loadingMessage = "LOADING YOUR LIBRARY..." }
         }
 
         let isBackground = background && !channels.isEmpty
@@ -319,7 +315,7 @@ extension AppState {
 
             // Surface a connection error only when every server failed.
             if successCount == 0 {
-                throw lastError ?? PlexAPIService.APIError.noReachableServer
+                throw lastError ?? MediaServerKit.APIError.noReachableServer
             }
 
             if scanWasAbandoned {
@@ -358,10 +354,6 @@ extension AppState {
             let withTMDB = merged.filter { $0.tmdbID != nil }.count
             let withIMDB = merged.filter { $0.imdbID != nil }.count
             print("[Plex90] Library: \(merged.count) items from \(successCount) server(s), \(withTMDB) with TMDB IDs, \(withIMDB) with IMDb IDs")
-            if backendKind == .emby {
-                // They stay in the library; ChannelEligibility keeps them out of every pool.
-                print("[Plex90] CHANNELS: \(ChannelEligibility.leftOffCount(merged, backend: backendKind)) Emby Dolby Vision profile 5 item(s) left off channels")
-            }
             LibraryLoadProbe.mark("merge+dedupe")
 
             if hasAnyCollectionBundle {
@@ -499,7 +491,7 @@ extension AppState {
             // (e.g. server restart, token rotation) get the proper "session expired" message.
             justAuthenticated = false
             lastFailureDiagnostic = nil
-        } catch let api as PlexAPIService.APIError {
+        } catch let api as MediaServerKit.APIError {
             isLoading = false
             isBackgroundRefreshing = false
             isLoadStalling = false
@@ -510,7 +502,7 @@ extension AppState {
                 Analytics.track(.libraryRefreshBackgroundFailed(reason: reason))
             } else {
                 Analytics.track(.libraryLoadFailed(reason: reason, background: false))
-                errorMessage = Self.userFacingPlexAPIServiceError(api, justAuthenticated: justAuthenticated, backend: backendKind)
+                errorMessage = Self.userFacingServerError(api, justAuthenticated: justAuthenticated, backend: backendKind)
                 lastFailureDiagnostic = diagnosticString(for: api)
                 if case .unauthorized = api, !justAuthenticated {
                     await resolveUnauthorizedLoadFailure()
@@ -548,7 +540,7 @@ extension AppState {
     /// One small request per server. Nil whenever any server cannot answer, so an outage
     /// or a backend without timestamps falls back to the ordinary scan rather than a skip.
     func currentLibrarySignature() async -> String? {
-        guard backendKind == .plex, !selectedServers.isEmpty else { return nil }
+        guard !selectedServers.isEmpty else { return nil }
         var parts: [String] = []
         for server in selectedServers {
             let backend = apiForServer(server)

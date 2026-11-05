@@ -1,5 +1,11 @@
 # Dev log
 
+> **Fork note.** This is the upstream Nostalgex change log, kept as history. It describes work on
+> surfaces this fork no longer has: the Plex and Emby backends, the browser web tuner, the
+> marketing site, the Docker container and the Roku port. This fork is a Jellyfin-only Apple TV
+> app. Read the entries below for background on why the tvOS playback and guide code is shaped the
+> way it is; they are not a description of the current tree.
+
 Why things changed, and what state they were left in. Newest first.
 Commits carry the detail of *what*; this carries the *why*.
 

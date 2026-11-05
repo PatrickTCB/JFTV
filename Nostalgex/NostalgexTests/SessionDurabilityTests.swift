@@ -32,15 +32,6 @@ final class SessionDurabilityTests: XCTestCase {
 
     // MARK: - Token-only sign-in
 
-    func testPlexTokenAloneCountsAsSignedIn() {
-        let state = AppState(credentialStore: InMemoryStore())
-        state.backendKind = .plex
-        state.token = "abc"
-        state.serverURL = ""
-        state.selectedServers = []
-        XCTAssertTrue(state.hasCredentials, "servers are rediscovered from plex.tv; losing the list must not sign the user out")
-    }
-
     func testJellyfinNeedsAServerURL() {
         let state = AppState(credentialStore: InMemoryStore())
         state.backendKind = .jellyfin
@@ -54,22 +45,22 @@ final class SessionDurabilityTests: XCTestCase {
 
     func testNoTokenIsNotSignedIn() {
         let state = AppState(credentialStore: InMemoryStore())
-        state.backendKind = .plex
+        state.backendKind = .jellyfin
         state.token = ""
-        state.serverURL = "https://plex.local"
+        state.serverURL = "https://jf.local"
         XCTAssertFalse(state.hasCredentials)
     }
 
-    // MARK: - A Plex sign-in is actually written to disk
+    // MARK: - A sign-in is actually written to disk
 
-    // Regression: from 7fc1629 (2026-05-29) the PIN flow persisted the server list but
+    // Regression: from 7fc1629 (2026-05-29) the sign-in flow persisted the server list but
     // not the account token, so a fresh sign-in never survived a relaunch.
-    func testPlexSignInPersistsTokenAndServers() {
+    func testSignInPersistsTokenAndServers() {
         let store = InMemoryStore()
         let state = AppState(credentialStore: store)
-        let server = AppState.ServerRef(machineIdentifier: "m1", name: "Den", baseURL: "https://plex.local:32400", owned: true, token: "srv")
+        let server = AppState.ServerRef(machineIdentifier: "m1", name: "Den", baseURL: "https://jf.local:8096", owned: true, token: "srv")
 
-        state.completePlexSignIn(token: "account-token", servers: [server])
+        state.completeSignIn(token: "account-token", servers: [server])
 
         XCTAssertEqual(store.values["plex_token"], "account-token")
         XCTAssertNotNil(store.values[AppState.serversKey])
@@ -81,36 +72,25 @@ final class SessionDurabilityTests: XCTestCase {
         XCTAssertTrue(relaunched.hasCredentials)
     }
 
-    func testPickerConfirmationPersistsTheToken() {
-        let store = InMemoryStore()
-        let state = AppState(credentialStore: store)
-        state.token = "account-token"
-        let server = AppState.ServerRef(machineIdentifier: "m2", name: "Loft", baseURL: "https://loft:32400", owned: true, token: "srv")
-
-        state.confirmServerSelection([server])
-
-        XCTAssertEqual(store.values["plex_token"], "account-token")
-    }
-
     // MARK: - 401 never signs out
 
     func testUnauthorizedMessagesKeepTheSessionAndPointAtDisconnect() {
         for validity in [TokenValidity.valid, .invalid, .unknown] {
-            let msg = AppState.unauthorizedLoadMessage(tokenValidity: validity, backend: .plex)
+            let msg = AppState.unauthorizedLoadMessage(tokenValidity: validity, backend: .jellyfin)
             XCTAssertFalse(msg.lowercased().contains("sign in again"), "\(validity): must not ask for a fresh sign-in")
         }
-        let invalid = AppState.unauthorizedLoadMessage(tokenValidity: .invalid, backend: .plex)
+        let invalid = AppState.unauthorizedLoadMessage(tokenValidity: .invalid, backend: .jellyfin)
         XCTAssertTrue(invalid.contains("kept"))
         XCTAssertTrue(invalid.contains("Disconnect"))
     }
 
     // MARK: - Error copy names the server the user actually connected to
 
-    /// A Jellyfin or Emby user whose scan fails used to be told to check Plex: the shared
-    /// `PlexAPIService.APIError` carried Plex-only wording for every backend. Issue #6 was
+    /// A Jellyfin user whose scan fails used to be told to check Plex: the shared
+    /// `MediaServerKit.APIError` carried Plex-only wording for every backend. Issue #6 was
     /// reported with "Plex (or your network path) returned HTTP 404" on an Emby server.
     func testErrorCopyNamesTheConnectedBackendAndNeverTheWrongOne() {
-        let cases: [PlexAPIService.APIError] = [
+        let cases: [MediaServerKit.APIError] = [
             .unauthorized,
             .invalidResponse,
             .noReachableServer,
@@ -118,10 +98,10 @@ final class SessionDurabilityTests: XCTestCase {
             .receivedMarkupInsteadOfJSON(statusCode: 200)
         ]
 
-        for backend in [MediaBackendKind.jellyfin, .emby] {
+        for backend in [MediaBackendKind.jellyfin] {
             for error in cases {
                 for fresh in [true, false] {
-                    let msg = AppState.userFacingPlexAPIServiceError(
+                    let msg = AppState.userFacingServerError(
                         error, justAuthenticated: fresh, backend: backend
                     )
                     XCTAssertFalse(
@@ -134,16 +114,10 @@ final class SessionDurabilityTests: XCTestCase {
 
         // The backend is named where there is a server to name. "Session expired" has no
         // server in it by design, so it is the one message that stays generic.
-        let emby = AppState.userFacingPlexAPIServiceError(
-            .httpFailure(statusCode: 404), backend: .emby
+        let jellyfin = AppState.userFacingServerError(
+            .httpFailure(statusCode: 404), backend: .jellyfin
         )
-        XCTAssertTrue(emby.contains("Emby"), emby)
-        XCTAssertTrue(emby.contains("404"), emby)
-
-        // Plex keeps its own wording, including the paths only Plex serves.
-        let plex = AppState.userFacingPlexAPIServiceError(
-            .httpFailure(statusCode: 404), backend: .plex
-        )
-        XCTAssertTrue(plex.contains("/identity"), plex)
+        XCTAssertTrue(jellyfin.contains("Jellyfin"), jellyfin)
+        XCTAssertTrue(jellyfin.contains("404"), jellyfin)
     }
 }

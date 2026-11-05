@@ -45,8 +45,6 @@ enum LANServerDiscovery {
     static func probe(for kind: MediaBackendKind) -> String? {
         switch kind {
         case .jellyfin: return "who is JellyfinServer?"
-        case .emby:     return "who is EmbyServer?"
-        case .plex:     return nil
         }
     }
 
