@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "about": "Golden vectors for franchise channel grouping. Read by BOTH Nostalgex/NostalgexTests/FranchiseGoldenTests.swift (the Apple TV builder) and scripts/nostalgex-franchise-smoke.mjs (the web builder, npm run test:franchises). Each case runs against franchises.json unless it carries its own definitions. Items are the tuner's shape: movies carry TMDB data under enrichment ({ franchiseID, franchiseName }); no enrichment key means not enriched yet; franchiseID null means enriched but TMDB has no collection. tvItems use the SHOW title. Expected groupings list item ids in input order. When a rule changes, change both engines, then update or add a case here.",
+  "about": "Golden vectors for franchise channel grouping. Read by BOTH JFTV/JFTVTests/FranchiseGoldenTests.swift (the Apple TV builder) and scripts/franchise-smoke.mjs (upstream web-engine test, removed in this fork) (the web builder, npm run test:franchises). Each case runs against franchises.json unless it carries its own definitions. Items are the tuner's shape: movies carry TMDB data under enrichment ({ franchiseID, franchiseName }); no enrichment key means not enriched yet; franchiseID null means enriched but TMDB has no collection. tvItems use the SHOW title. Expected groupings list item ids in input order. When a rule changes, change both engines, then update or add a case here.",
   "cases": [
     {
       "name": "john-wick-parabellum-joins-by-collection",

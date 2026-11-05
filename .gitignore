@@ -5,8 +5,8 @@
 .cursor/
 
 # Xcode
-Nostalgex/build/
-Nostalgex/DerivedData/
+JFTV/build/
+JFTV/DerivedData/
 build-archive/
 *.xcuserstate
 xcuserdata/

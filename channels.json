@@ -128,8 +128,8 @@
   ],
   "bundles": [
     {
-      "id": "nostalgex",
-      "name": "NOSTALGEX",
+      "id": "jftv",
+      "name": "JFTV",
       "description": "The 80s and 90s. All retro, all the time",
       "channelIDs": [
         1,
@@ -384,7 +384,7 @@
       "number": 1,
       "name": "REWATCHABLES MOVIES",
       "colorHex": "#FFE500",
-      "category": "nostalgex",
+      "category": "jftv",
       "minItems": 5,
       "rules": {
         "type": "movie",
@@ -396,7 +396,7 @@
       "number": 2,
       "name": "REWATCHABLES TV",
       "colorHex": "#FFD000",
-      "category": "nostalgex",
+      "category": "jftv",
       "minItems": 5,
       "rules": {
         "type": "episode",
@@ -405,9 +405,9 @@
     },
     {
       "id": 3,
-      "name": "NOSTALGEX LOL",
+      "name": "JFTV LOL",
       "colorHex": "#F1C40F",
-      "category": "nostalgex",
+      "category": "jftv",
       "minItems": 3,
       "rules": {
         "type": "movie",
@@ -437,7 +437,7 @@
       "number": 4,
       "name": "SAT MORNING CARTOONS",
       "colorHex": "#00DD88",
-      "category": "nostalgex",
+      "category": "jftv",
       "minItems": 15,
       "rules": {
         "type": "episode",
@@ -468,7 +468,7 @@
       "number": 5,
       "name": "90S SITCOMS",
       "colorHex": "#9B59B6",
-      "category": "nostalgex",
+      "category": "jftv",
       "minItems": 10,
       "rules": {
         "type": "episode",
@@ -492,7 +492,7 @@
       "number": 6,
       "name": "AFTER SCHOOL TV",
       "colorHex": "#F39C12",
-      "category": "nostalgex",
+      "category": "jftv",
       "minItems": 5,
       "rules": {
         "type": "episode",
@@ -525,7 +525,7 @@
       "number": 20,
       "name": "80S SITCOMS",
       "colorHex": "#8E44AD",
-      "category": "nostalgex",
+      "category": "jftv",
       "minItems": 10,
       "rules": {
         "type": "episode",
@@ -549,7 +549,7 @@
       "number": 21,
       "name": "80S LOL",
       "colorHex": "#D4AC0D",
-      "category": "nostalgex",
+      "category": "jftv",
       "minItems": 3,
       "rules": {
         "type": "movie",
@@ -578,7 +578,7 @@
       "number": 22,
       "name": "80S AFTER SCHOOL TV",
       "colorHex": "#D35400",
-      "category": "nostalgex",
+      "category": "jftv",
       "minItems": 5,
       "rules": {
         "type": "episode",
@@ -611,7 +611,7 @@
       "number": 7,
       "name": "VHS VAULT",
       "colorHex": "#E67E22",
-      "category": "nostalgex",
+      "category": "jftv",
       "minItems": 5,
       "rules": {
         "type": "movie",
@@ -634,7 +634,7 @@
       "id": 8,
       "name": "CLASSIC FAM JAMS",
       "colorHex": "#E05A32",
-      "category": "nostalgex",
+      "category": "jftv",
       "minItems": 3,
       "rules": {
         "type": "movie",
@@ -659,7 +659,7 @@
       "number": 9,
       "name": "GIRLS NIGHT",
       "colorHex": "#FF85A1",
-      "category": "nostalgex",
+      "category": "jftv",
       "minItems": 3,
       "rules": {
         "type": "movie",
@@ -705,7 +705,7 @@
       "number": 10,
       "name": "TEEN MOVIES",
       "colorHex": "#FF5E8A",
-      "category": "nostalgex",
+      "category": "jftv",
       "minItems": 5,
       "rules": {
         "type": "movie",
@@ -767,7 +767,7 @@
       "number": 11,
       "name": "RETRO TOONS",
       "colorHex": "#2DC7B0",
-      "category": "nostalgex",
+      "category": "jftv",
       "minItems": 5,
       "rules": {
         "type": "movie",
@@ -809,7 +809,7 @@
       "number": 12,
       "name": "ACTION ADVENTURE",
       "colorHex": "#E74C3C",
-      "category": "nostalgex",
+      "category": "jftv",
       "minItems": 3,
       "rules": {
         "type": "movie",
@@ -837,7 +837,7 @@
       "number": 13,
       "name": "LAST ACTION HEROES",
       "colorHex": "#B7410E",
-      "category": "nostalgex",
+      "category": "jftv",
       "minItems": 5,
       "rules": {
         "type": "movie",
@@ -889,7 +889,7 @@
       "number": 14,
       "name": "BUDDIES",
       "colorHex": "#F39C12",
-      "category": "nostalgex",
+      "category": "jftv",
       "minItems": 5,
       "rules": {
         "type": "movie",
@@ -935,7 +935,7 @@
       "number": 16,
       "name": "DVD SHELF",
       "colorHex": "#C0392B",
-      "category": "nostalgex",
+      "category": "jftv",
       "minItems": 5,
       "rules": {
         "type": "movie",
@@ -950,7 +950,7 @@
       "number": 17,
       "name": "Y2K COMEDY",
       "colorHex": "#E67E22",
-      "category": "nostalgex",
+      "category": "jftv",
       "minItems": 3,
       "rules": {
         "type": "movie",
@@ -979,7 +979,7 @@
       "number": 18,
       "name": "Y2K SITCOMS",
       "colorHex": "#F1C40F",
-      "category": "nostalgex",
+      "category": "jftv",
       "minItems": 10,
       "rules": {
         "type": "episode",
@@ -1003,7 +1003,7 @@
       "number": 15,
       "name": "CARTOON NETWORK",
       "colorHex": "#00BFFF",
-      "category": "nostalgex",
+      "category": "jftv",
       "minItems": 5,
       "rules": {
         "type": "episode",
@@ -1056,7 +1056,7 @@
     {
       "id": 408,
       "number": 183,
-      "name": "NOSTALGEX HORROR",
+      "name": "JFTV HORROR",
       "colorHex": "#8E44AD",
       "category": "seasonal",
       "minItems": 3,
@@ -4331,7 +4331,7 @@
     {
       "id": 411,
       "number": 193,
-      "name": "NOSTALGEX CHRISTMAS",
+      "name": "JFTV CHRISTMAS",
       "colorHex": "#E74C3C",
       "category": "seasonal",
       "minItems": 3,
@@ -5359,7 +5359,7 @@
       "number": 19,
       "name": "Y2K TOONS",
       "colorHex": "#1ABC9C",
-      "category": "nostalgex",
+      "category": "jftv",
       "minItems": 5,
       "rules": {
         "type": "episode",

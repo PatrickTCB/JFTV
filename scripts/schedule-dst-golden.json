@@ -1,7 +1,7 @@
 {
  "_about": [
   "Shared vectors for the schedule engine on the days the clocks change. Read by",
-  "Nostalgex/NostalgexTests/ScheduleDSTGoldenTests.swift and scripts/nostalgex-schedule-dst-smoke.mjs",
+  "JFTV/JFTVTests/ScheduleDSTGoldenTests.swift and scripts/schedule-dst-smoke.mjs (upstream web-engine test, removed in this fork)",
   "(npm run test:schedule-dst). Both must pass every case.",
   "Times are unix seconds. start and nextStart are the zone's real local midnights from the IANA",
   "time zone database (the node test checks them against Intl). Where midnight is skipped",

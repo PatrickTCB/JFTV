@@ -1,4 +1,4 @@
-# Nostalgex Channel Guide
+# JFTV Channel Guide
 
 <!-- Reference documentation for channels.json. The generator that produced this
      lived in the upstream web tooling and is not part of this fork; treat this
@@ -26,12 +26,12 @@ Which key does what:
 
 Every table below shows both.
 
-**Pool filter logic** lives in `Nostalgex/Nostalgex/App/AppState+Channels.swift` →
+**Pool filter logic** lives in `JFTV/JFTV/App/AppState+Channels.swift` →
 `filterItems`. TMDB membership manifest: `channels-memberships.json`. The golden vectors
 under `scripts/` (e.g. `filter-golden.json`) hold the filter to those rules.
 
-**Schedule ordering** lives in `Nostalgex/Nostalgex/Models/SchedulePoolOrdering.swift` and
-`Nostalgex/Nostalgex/Services/DailyManifestScheduler.swift`. The golden vectors
+**Schedule ordering** lives in `JFTV/JFTV/Models/SchedulePoolOrdering.swift` and
+`JFTV/JFTV/Services/DailyManifestScheduler.swift`. The golden vectors
 (`schedule-parity-golden.json`, `schedule-dst-golden.json`) lock the ordering down.
 
 **Keyword matches are ADDITIVE.** They broaden what a channel can pull in; they
@@ -49,7 +49,7 @@ only name the channel's own defining genre.
 
 | Bundle | Bundle ID | Channels | Range | Description |
 |---|---|---|---|---|
-| NOSTALGEX | `nostalgex` | 22 | CH 1-22 | The 80s and 90s. All retro, all the time |
+| JFTV | `jftv` | 22 | CH 1-22 | The 80s and 90s. All retro, all the time |
 | KIDZ ZONE | `kids` | 15 | CH 30-44 | Disney, Nickelodeon, Pixar, and more |
 | PRIME TIME | `essentials` | 16 | CH 50-65 | Everyday favorites and feel-good viewing |
 | MARQUEE | `premium` | 11 | CH 70-80 | Premium channels |
@@ -87,7 +87,7 @@ web filter) and `scripts/filter-golden.json` pins the cases.
 
 | Locked to | Matches on | Notes |
 |---|---|---|
-| CH190 HOLIDAZE (id 130)<br>CH191 SANTA'S LIST (id 409)<br>CH192 NAUGHTY LIST (id 410)<br>CH193 NOSTALGEX CHRISTMAS (id 411)<br>CH194 MISTLETOE (id 412)<br>CH195 CHRISTMAS SPECIALS (id 413)<br>CH196 KIDS CHRISTMAS TV (id 414) | genres Holiday/Christmas, 14 title words, 47 exact titles, only movies from the movie library | Christmas films belong to the TIS THE SEASON channels, including the two TV channels, which air half-hour specials stored as films. Films in a movie library only (`type: movie`, `source: movie`), so a show with Santa in its name and a Christmas song on a music video stay free. Title words are the ones that measured 95% or more Christmas across TMDB films with 25+ votes (2026-10-18): "Holiday" (66%, Mr. Bean's Holiday, Roman Holiday), "Santa" (87%, Santa Sangre, Santa Fe Trail), "Merry", "Snowman", "Grinch", "Scrooge", "Nutcracker" and "Reindeer" were dropped, so the channels still match them but no longer lock them away. Die Hard, Lethal Weapon, Reindeer Games, Rocky IV, Gremlins, Batman Returns, Trading Places, The Family Man, While You Were Sleeping and The Shop Around the Corner are deliberately NOT locked: Christmas-set, but they belong on their year-round channels too. |
+| CH190 HOLIDAZE (id 130)<br>CH191 SANTA'S LIST (id 409)<br>CH192 NAUGHTY LIST (id 410)<br>CH193 JFTV CHRISTMAS (id 411)<br>CH194 MISTLETOE (id 412)<br>CH195 CHRISTMAS SPECIALS (id 413)<br>CH196 KIDS CHRISTMAS TV (id 414) | genres Holiday/Christmas, 14 title words, 47 exact titles, only movies from the movie library | Christmas films belong to the TIS THE SEASON channels, including the two TV channels, which air half-hour specials stored as films. Films in a movie library only (`type: movie`, `source: movie`), so a show with Santa in its name and a Christmas song on a music video stay free. Title words are the ones that measured 95% or more Christmas across TMDB films with 25+ votes (2026-10-18): "Holiday" (66%, Mr. Bean's Holiday, Roman Holiday), "Santa" (87%, Santa Sangre, Santa Fe Trail), "Merry", "Snowman", "Grinch", "Scrooge", "Nutcracker" and "Reindeer" were dropped, so the channels still match them but no longer lock them away. Die Hard, Lethal Weapon, Reindeer Games, Rocky IV, Gremlins, Batman Returns, Trading Places, The Family Man, While You Were Sleeping and The Shop Around the Corner are deliberately NOT locked: Christmas-set, but they belong on their year-round channels too. |
 | id 32 (missing)<br>CH70 ANIME (id 60) | genres Anime, TMDB manifest claim (`manifestExclusive`) | Anime is claimed by genre `Anime` OR by a TMDB-manifest claim (`manifestExclusive`), so manifest-claimed anime is blocked from the other animation channels even when the server only tags it "Animation". The manifest builder gates these channels with `requireGenres: ["Animation"]` + `requireOriginalLanguage: ["ja"]` + `autoSweepCollections: false` so TMDB similar/collection noise cannot be claimed. That blocks live-action (Spy Kids) AND Western animation (An American Tail, Avatar, Castlevania). Strict Japanese anime only. Re-run the keyword tuner to apply changes. |
 | CH182 SCREAM ADULTS (id 132)<br>CH184 SLASHER (id 415) | 22 exact titles, only movies from the movie library | The Scream and Halloween films, by exact title, so SCREAM ADULTS and SLASHER own them rather than the other horror channels. It used to match any title containing "scream" or "halloween", which hid Kicking & Screaming and Hubie Halloween from every channel they belong on. |
 
@@ -95,7 +95,7 @@ web filter) and `scripts/filter-golden.json` pins the cases.
 
 ## Channels by bundle
 
-### NOSTALGEX · CH 1-22
+### JFTV · CH 1-22
 
 _The 80s and 90s. All retro, all the time_
 
@@ -103,7 +103,7 @@ _The 80s and 90s. All retro, all the time_
 |---|---|---|---|---|---|---|
 | 1 | `1` | REWATCHABLES MOVIES | `#FFE500` | Movies | 5 | rewatched (viewCount ≥ 3) |
 | 2 | `2` | REWATCHABLES TV | `#FFD000` | Episodes | 5 | rewatched (viewCount ≥ 3) |
-| 3 | `3` | NOSTALGEX LOL | `#F1C40F` | Movies | 3 | incl Comedy, no Animation/Animated, kw excl (3), 1980-1999 |
+| 3 | `3` | JFTV LOL | `#F1C40F` | Movies | 3 | incl Comedy, no Animation/Animated, kw excl (3), 1980-1999 |
 | 4 | `4` | SAT MORNING CARTOONS | `#00DD88` | Episodes | 15 | incl Animation/Kids/Children/Cartoon/Animated, 1960-1999, rated TV-Y/TV-Y7/TV-G/G/unrated |
 | 5 | `5` | 90S SITCOMS | `#9B59B6` | Episodes | 10 | incl Comedy, no Anime/Animation, 1990-1999 |
 | 6 | `6` | AFTER SCHOOL TV | `#F39C12` | Episodes | 5 | incl Comedy/Drama/Family, no Animation/Anime/Cartoon, 1980-1999, rated TV-G/TV-PG/TV-14/unrated |
@@ -281,7 +281,7 @@ Spotlighted Oct. Off until switched on, then on in any month.
 | 180 | **`131`** ⚠︎ | SCREAM KIDS | `#FF8C00` | Movies | 3 | no Horror, title allowlist (37), editorial always-in (43), rated G/PG/TV-Y/TV-Y7/TV-G/TV-PG |
 | 181 | **`141`** ⚠︎ | FRIGHT NIGHT | `#8B0000` | Any | 5 | incl Horror |
 | 182 | **`132`** ⚠︎ | SCREAM ADULTS | `#8B0000` | Movies | 3 | incl Horror/Thriller, no Family/Children/Kids/Animation/Animated, title allowlist (53), title blocklist (14), rated R/NC-17/PG-13/TV-MA |
-| 183 | **`408`** ⚠︎ | NOSTALGEX HORROR | `#8E44AD` | Movies | 3 | incl Horror, no Family/Children/Kids/Animation/Animated, 1975-1999 |
+| 183 | **`408`** ⚠︎ | JFTV HORROR | `#8E44AD` | Movies | 3 | incl Horror, no Family/Children/Kids/Animation/Animated, 1975-1999 |
 | 184 | **`415`** ⚠︎ | SLASHER | `#C0001A` | Movies | 5 | incl Horror, no Family/Children/Kids/Animation/Animated, title allowlist (23), title blocklist (3), kw +4, kw needs genre Horror, kw-gated genre Horror |
 | 185 | **`416`** ⚠︎ | HORROR COMEDY | `#8BC34A` | Movies | 3 | incl Horror, needs ALL Horror + Comedy, no Family/Children/Kids/Animation/Animated, rated PG/PG-13/R/NC-17/TV-14/TV-MA/NR/unrated |
 | 186 | **`417`** ⚠︎ | FOUND FOOTAGE | `#5D6D5F` | Movies | 3 | incl Horror, no Family/Children/Kids/Animation/Animated, title allowlist (10), kw +2, kw needs genre Horror/Science Fiction, kw-gated genre Horror |
@@ -298,7 +298,7 @@ Spotlighted from 7 days before US Thanksgiving (the fourth Thursday of November)
 | 190 | **`130`** ⚠︎ | HOLIDAZE | `#C41E3A` | Movies | 3 | incl Holiday/Christmas, title allowlist (19), title blocklist (3), editorial always-in (98), Rating ≥ 5 |
 | 191 | **`409`** ⚠︎ | SANTA'S LIST | `#2ECC71` | Movies | 3 | incl Holiday/Christmas, title allowlist (114), title blocklist (9), rated G/PG/TV-Y/TV-Y7/TV-G/TV-PG/unrated |
 | 192 | **`410`** ⚠︎ | NAUGHTY LIST | `#C0392B` | Movies | 3 | incl Holiday/Christmas, title allowlist (114), title blocklist (9), rated PG-13/R/TV-14/TV-MA |
-| 193 | **`411`** ⚠︎ | NOSTALGEX CHRISTMAS | `#E74C3C` | Movies | 3 | incl Holiday/Christmas, title allowlist (114), title blocklist (9), …-1999 |
+| 193 | **`411`** ⚠︎ | JFTV CHRISTMAS | `#E74C3C` | Movies | 3 | incl Holiday/Christmas, title allowlist (114), title blocklist (9), …-1999 |
 | 194 | **`412`** ⚠︎ | MISTLETOE | `#D98880` | Movies | 3 | genres include TMDB's, needs ALL Romance, no Animation/Animated, title allowlist (19), title blocklist (2), kw +12, 1980-…, rated G/PG/TV-Y/TV-Y7/TV-G/TV-PG/NR/Not Rated/unrated, 70-120 min |
 | 195 | **`413`** ⚠︎ | CHRISTMAS SPECIALS | `#27AE60` | Any | 5 | episode title words (38), seasonal title words (16) if aired 11-25 to 01-07, summary words (17), episode title blocklist (18), rated TV-PG/PG/TV-14/TV-MA/PG-13/R/NR/Not Rated, ≤ 65 min |
 | 196 | **`414`** ⚠︎ | KIDS CHRISTMAS TV | `#58D68D` | Any | 5 | episode title words (38), seasonal title words (16) if aired 11-25 to 01-07, summary words (17), episode title blocklist (18), rated TV-Y/TV-Y7/TV-G/G/unrated, ≤ 65 min |
@@ -436,7 +436,7 @@ _Music videos by genre_
 | `131` | CH180 | SCREAM KIDS |
 | `141` | CH181 | FRIGHT NIGHT |
 | `132` | CH182 | SCREAM ADULTS |
-| `408` | CH183 | NOSTALGEX HORROR |
+| `408` | CH183 | JFTV HORROR |
 | `415` | CH184 | SLASHER |
 | `416` | CH185 | HORROR COMEDY |
 | `417` | CH186 | FOUND FOOTAGE |
@@ -444,7 +444,7 @@ _Music videos by genre_
 | `130` | CH190 | HOLIDAZE |
 | `409` | CH191 | SANTA'S LIST |
 | `410` | CH192 | NAUGHTY LIST |
-| `411` | CH193 | NOSTALGEX CHRISTMAS |
+| `411` | CH193 | JFTV CHRISTMAS |
 | `412` | CH194 | MISTLETOE |
 | `413` | CH195 | CHRISTMAS SPECIALS |
 | `414` | CH196 | KIDS CHRISTMAS TV |

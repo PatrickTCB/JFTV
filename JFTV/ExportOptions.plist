@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Automatic signing. scripts/release-tvos.sh runs the export with
+  -allowProvisioningUpdates and the App Store Connect API key
+  (-authenticationKeyPath / -authenticationKeyID / -authenticationKeyIssuerID),
+  which lets xcodebuild fetch or update the App Store profiles itself, with
+  every capability the targets have (App Groups, iCloud). That is how 1.0.29
+  exported on 2026-10-31.
+
+  The old manual profiles ("JFTV tvOS App Store", "JFTV TopShelf tvOS
+  App Store") predate the iCloud capability, so a manual export with them
+  fails. Without the API key flags, automatic signing from the command line
+  can fall back to a stale cached Xcode-managed profile: always run the export
+  through the script, or pass the same flags.
+
+  destination is "export": the script validates and uploads the .ipa with
+  altool afterwards, so --dry-run can stop after validation.
+-->
+<plist version="1.0">
+<dict>
+  <key>method</key><string>app-store-connect</string>
+  <key>teamID</key><string>KK5V95295A</string>
+  <key>uploadSymbols</key><true/>
+  <key>signingStyle</key><string>automatic</string>
+  <key>destination</key><string>export</string>
+  <key>manageAppVersionAndBuildNumber</key><false/>
+</dict>
+</plist>

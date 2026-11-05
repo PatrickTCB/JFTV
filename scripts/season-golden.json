@@ -1,7 +1,7 @@
 {
   "_about": [
     "Shared vectors for seasonal bundles: when one is in season, which one the invite above channel one offers, which channels lead the guide, the NOT THIS YEAR and DON'T ASK AGAIN answers, and what the invite and the Settings row say.",
-    "Read by Nostalgex/NostalgexTests/SeasonGoldenTests.swift and scripts/nostalgex-season-smoke.mjs (npm run test:season). Both must pass every case in every zone below.",
+    "Read by JFTV/JFTVTests/SeasonGoldenTests.swift and scripts/season-smoke.mjs (upstream web-engine test, removed in this fork) (npm run test:season). Both must pass every case in every zone below.",
     "`at` is a local wall-clock time on the device, with no zone. Each runner checks every case in each of `zones`.",
     "`bundle` names a bundle in the shipped channels.json; `def` gives one inline. Offers and leads run over the shipped bundles.",
     "Answer steps: {answer, bundle, at} records yes, notNow (NOT THIS YEAR) or never (DON'T ASK AGAIN); yes also switches the bundle on. {at, offer} checks the invite; {at, silenced, want} checks one bundle.",
@@ -59,7 +59,7 @@
     { "name": "SCREAM unchanged: Nov 1", "bundle": "seasonal", "at": "2026-11-01T00:00", "want": false },
     { "name": "SCREAM unchanged: Nov 19", "bundle": "seasonal", "at": "2026-11-19T12:00", "want": false },
     { "name": "SCREAM unchanged: Dec 25", "bundle": "seasonal", "at": "2026-12-25T12:00", "want": false },
-    { "name": "a bundle without activeMonths always is", "bundle": "nostalgex", "at": "2026-07-04T12:00", "want": true },
+    { "name": "a bundle without activeMonths always is", "bundle": "jftv", "at": "2026-07-04T12:00", "want": true },
     { "name": "December only, no seasonStart: not in November", "def": { "activeMonths": [12] }, "at": "2026-11-19T12:00", "want": false },
     { "name": "negative control: an unknown anchor starts nothing early", "def": { "activeMonths": [12], "seasonStart": { "relativeTo": "easter", "days": -7 } }, "at": "2026-11-20T12:00", "want": false },
     { "name": "negative control: an unknown anchor keeps its activeMonths", "def": { "activeMonths": [12], "seasonStart": { "relativeTo": "easter", "days": -7 } }, "at": "2026-12-02T12:00", "want": true },
@@ -80,12 +80,12 @@
     { "name": "never a package that is already on", "at": "2026-11-20T20:00", "on": ["tis-the-season"], "want": null }
   ],
   "lead": [
-    { "name": "SCREAM leads in October", "at": "2026-10-20T20:00", "on": ["nostalgex", "seasonal", "tis-the-season"], "want": ["seasonal"] },
-    { "name": "nothing leads the minute before the holiday start", "at": "2026-11-18T23:59", "on": ["nostalgex", "seasonal", "tis-the-season"], "want": [] },
-    { "name": "TIS THE SEASON leads from a week before Thanksgiving", "at": "2026-11-19T00:00", "on": ["nostalgex", "seasonal", "tis-the-season"], "want": ["tis-the-season"] },
-    { "name": "TIS THE SEASON leads to the end of December", "at": "2026-12-31T23:59", "on": ["nostalgex", "seasonal", "tis-the-season"], "want": ["tis-the-season"] },
-    { "name": "nothing leads on New Year's Day", "at": "2027-01-01T00:00", "on": ["nostalgex", "seasonal", "tis-the-season"], "want": [] },
-    { "name": "a package that is off never leads", "at": "2026-11-20T20:00", "on": ["nostalgex"], "want": [] }
+    { "name": "SCREAM leads in October", "at": "2026-10-20T20:00", "on": ["jftv", "seasonal", "tis-the-season"], "want": ["seasonal"] },
+    { "name": "nothing leads the minute before the holiday start", "at": "2026-11-18T23:59", "on": ["jftv", "seasonal", "tis-the-season"], "want": [] },
+    { "name": "TIS THE SEASON leads from a week before Thanksgiving", "at": "2026-11-19T00:00", "on": ["jftv", "seasonal", "tis-the-season"], "want": ["tis-the-season"] },
+    { "name": "TIS THE SEASON leads to the end of December", "at": "2026-12-31T23:59", "on": ["jftv", "seasonal", "tis-the-season"], "want": ["tis-the-season"] },
+    { "name": "nothing leads on New Year's Day", "at": "2027-01-01T00:00", "on": ["jftv", "seasonal", "tis-the-season"], "want": [] },
+    { "name": "a package that is off never leads", "at": "2026-11-20T20:00", "on": ["jftv"], "want": [] }
   ],
   "answers": [
     {
@@ -153,7 +153,7 @@
     { "bundle": "tis-the-season", "at": "2026-07-04T12:00", "want": "SPOTLIGHTED NOV 19 TO DEC 31" },
     { "bundle": "tis-the-season", "at": "2027-01-01T00:00", "want": "SPOTLIGHTED NOV 18 TO DEC 31" },
     { "bundle": "tis-the-season", "at": "2029-03-01T12:00", "want": "SPOTLIGHTED NOV 15 TO DEC 31" },
-    { "bundle": "nostalgex", "at": "2026-07-04T12:00", "want": "" },
+    { "bundle": "jftv", "at": "2026-07-04T12:00", "want": "" },
     { "def": { "activeMonths": [11, 12] }, "at": "2026-07-04T12:00", "want": "SPOTLIGHTED NOV, DEC" },
     { "def": { "activeMonths": [12], "seasonStart": { "relativeTo": "easter", "days": -7 } }, "at": "2026-07-04T12:00", "want": "SPOTLIGHTED DEC" }
   ]

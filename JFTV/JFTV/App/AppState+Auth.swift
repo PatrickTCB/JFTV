@@ -1,0 +1,784 @@
+import Foundation
+import Observation
+import SwiftUI
+import AVFoundation
+import Combine
+import UIKit
+import os
+
+// Authentication, credential persistence, server session lifecycle and 401 handling.
+// Split out of AppState.swift; behavior unchanged.
+extension AppState {
+    // MARK: - Credentials (Keychain)
+
+    /// Loads credentials from Keychain only when we don't already have them in memory.
+    /// This avoids clobbering a just-acquired token/serverURL during the PIN auth flow.
+    func hydrateCredentialsIfNeeded() {
+        if ProcessInfo.processInfo.arguments.contains("-uiTestResetCredentials") {
+            return
+        }
+        // Restore the last-load timestamp from UserDefaults so the "loaded < 24h
+        // ago" gate works even before any snapshot restore attempt.
+        if lastLoadAtUnix == 0 {
+            let saved = AppDefaults.standard.integer(forKey: Self.lastLoadKey)
+            if saved > 0 { lastLoadAtUnix = saved }
+        }
+        guard !hasCredentials else { return }
+        loadCredentials()
+    }
+
+    func loadCredentials() {
+        // Migrate from UserDefaults to Keychain (one-time)
+        if let legacyURL = AppDefaults.standard.string(forKey: "plex_server_url"), !legacyURL.isEmpty {
+            credentialStore.save(key: "plex_server_url", value: Self.normalizePlexServerURL(legacyURL))
+            AppDefaults.standard.removeObject(forKey: "plex_server_url")
+        }
+        if let legacyToken = AppDefaults.standard.string(forKey: "plex_token"), !legacyToken.isEmpty {
+            credentialStore.save(key: "plex_token", value: legacyToken)
+            AppDefaults.standard.removeObject(forKey: "plex_token")
+        }
+
+        serverURL = Self.normalizePlexServerURL(credentialStore.load(key: "plex_server_url") ?? "")
+        token = credentialStore.load(key: "plex_token") ?? ""
+
+        // Backend selection.
+        backendKind = credentialStore.load(key: Self.backendKindKey)
+            .flatMap(MediaBackendKind.init(rawValue:)) ?? .jellyfin
+        jellyfinUserId = credentialStore.load(key: Self.jellyfinUserIdKey) ?? ""
+
+        // One-time migration: re-save credentials under AfterFirstUnlock (was ThisDeviceOnly,
+        // which doesn't survive device restores or tvOS updates). Harmless if already migrated.
+        let keychainMigrationKey = "plex90_keychain_v2_migrated"
+        if !token.isEmpty && !AppDefaults.standard.bool(forKey: keychainMigrationKey) {
+            credentialStore.save(key: "plex_token", value: token)
+            if !serverURL.isEmpty { credentialStore.save(key: "plex_server_url", value: serverURL) }
+            AppDefaults.standard.set(true, forKey: keychainMigrationKey)
+        }
+
+        // Load the multi-server selection. Migrate a legacy single server into the list.
+        if let json = credentialStore.load(key: Self.serversKey),
+           let data = json.data(using: .utf8),
+           let decoded = try? JSONDecoder().decode([ServerRef].self, from: data),
+           !decoded.isEmpty {
+            let cleaned = Self.dedupingServers(decoded)
+            selectedServers = cleaned
+            if cleaned.count != decoded.count {
+                print("[JFTV] AUTH: server list had \(decoded.count - cleaned.count) duplicate entr\(decoded.count - cleaned.count == 1 ? "y" : "ies") for the same server, removed")
+                persistSelectedServers()
+            }
+        } else if !serverURL.isEmpty {
+            selectedServers = [ServerRef(
+                machineIdentifier: serverURL,
+                name: serverName.isEmpty ? "Plex Server" : serverName,
+                baseURL: serverURL,
+                owned: true,
+                token: token
+            )]
+            persistSelectedServers()
+        }
+        syncPrimaryServerFields()
+    }
+
+    /// Pure so the marker/status matrix is unit-testable without a keychain.
+    static func signInLossDiagnosis(markerPresent: Bool, statuses: [String: Int]) -> String? {
+        guard markerPresent else { return nil }
+        let token = statuses["plex_token"].map(String.init) ?? "?"
+        return "THIS DEVICE LOST YOUR SAVED SIGN-IN (CODE \(token)). PLEASE REPORT THAT CODE."
+    }
+
+    /// Launch-time hydration with a short retry for transient keychain refusals, and a
+    /// diagnosis when the sign-in is genuinely gone.
+    func hydrateCredentialsWithRetry() async {
+        defer { didAttemptCredentialHydration = true }
+        for attempt in 0 ..< 3 {
+            hydrateCredentialsIfNeeded()
+            if hasCredentials {
+                // Sign-ins that predate the marker never got one at sign-in time, so a
+                // later loss on those devices was silent. Any successful launch load is
+                // proof this device held a sign-in.
+                AppDefaults.standard.set(true, forKey: Self.hasHeldSignInMarkerKey)
+                return
+            }
+            let statuses = KeychainService.lastLoadStatuses()
+            let transient = statuses.values.contains { KeychainService.isTransientLoadStatus($0) }
+            guard transient, attempt < 2 else { break }
+            print("[JFTV] AUTH: keychain not ready \(statuses), retrying load \(attempt + 1)")
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+        }
+        if !hasCredentials {
+            signInLossDiagnostic = Self.signInLossDiagnosis(
+                markerPresent: AppDefaults.standard.bool(forKey: Self.hasHeldSignInMarkerKey),
+                statuses: KeychainService.lastLoadStatuses()
+            )
+            if let diagnostic = signInLossDiagnostic {
+                print("[JFTV] AUTH: \(diagnostic)")
+            }
+        }
+    }
+
+    func saveCredentials() {
+        serverURL = Self.normalizePlexServerURL(serverURL)
+        // Every write is verified by reading it back, so a false here means this sign-in will
+        // not survive relaunch. Recorded rather than ignored: silently losing the session is
+        // the single most trust-damaging failure this app has, and the user deserves to know
+        // it happened rather than blaming themselves for "getting logged out again".
+        var allPersisted = true
+        allPersisted = credentialStore.save(key: "plex_server_url", value: serverURL) && allPersisted
+        allPersisted = credentialStore.save(key: "plex_token", value: token) && allPersisted
+        allPersisted = credentialStore.save(key: Self.backendKindKey, value: backendKind.rawValue) && allPersisted
+        allPersisted = credentialStore.save(key: Self.jellyfinUserIdKey, value: jellyfinUserId) && allPersisted
+        credentialsArePersistent = allPersisted
+        InstallDiagnostics.log.notice("save: persisted=\(allPersisted) \(InstallDiagnostics.summary(), privacy: .public)")
+        signInLossDiagnostic = nil
+        lastSignOutNotice = nil
+        AppDefaults.standard.removeObject(forKey: Self.lastSignOutNoticeKey)
+        AppDefaults.standard.set(true, forKey: Self.hasHeldSignInMarkerKey)
+        if !allPersisted {
+            print("[JFTV] AUTH: credentials could not be persisted — sign-in will be lost on relaunch")
+        }
+        persistSelectedServers()
+    }
+
+    /// Replaces the selected-server list, keeps the primary display fields in sync, and persists.
+    func setSelectedServers(_ servers: [ServerRef]) {
+        selectedServers = Self.dedupingServers(servers)
+        syncPrimaryServerFields()
+        persistSelectedServers()
+        // A different server set is a different library; nothing a running scan brings
+        // back belongs in it.
+        invalidateInFlightLibraryLoads()
+    }
+
+    /// One entry per physical server. A pre-multi-server install migrated its single server
+    /// as a ServerRef keyed by its URL; discovery later added the same server keyed by its
+    /// machine identifier, and toggling in Settings compared identifiers, so both survived.
+    /// The library was then scanned once per entry and every pool held every title twice,
+    /// which is what aired the same film back to back and trapped on duplicate keys.
+    /// Same host and port means the same server; the entry with a real identifier wins.
+    static func dedupingServers(_ servers: [ServerRef]) -> [ServerRef] {
+        func host(_ url: String) -> String {
+            guard let u = URL(string: url), let h = u.host?.lowercased() else { return url.lowercased() }
+            return "\(h):\(u.port ?? 32400)"
+        }
+        func isLegacy(_ s: ServerRef) -> Bool { s.machineIdentifier.lowercased().hasPrefix("http") }
+        var out: [ServerRef] = []
+        for s in servers {
+            if let i = out.firstIndex(where: { $0.machineIdentifier == s.machineIdentifier || host($0.baseURL) == host(s.baseURL) }) {
+                if isLegacy(out[i]) && !isLegacy(s) { out[i] = s }
+                continue
+            }
+            out.append(s)
+        }
+        return out
+    }
+
+    private func persistSelectedServers() {
+        guard let data = try? JSONEncoder().encode(selectedServers),
+              let json = String(data: data, encoding: .utf8) else { return }
+        credentialStore.save(key: Self.serversKey, value: json)
+    }
+
+    /// Mirrors the primary (first) server into `serverURL`/`serverName` for display
+    /// and the single-server fallback paths.
+    private func syncPrimaryServerFields() {
+        if let primary = selectedServers.first {
+            serverURL = primary.baseURL
+            serverName = primary.name
+        }
+    }
+
+    // MARK: - Library selection (I-054)
+
+    /// Step 3 of sign-in: after servers are chosen, read every section across them and
+    /// either show the onboarding picker or, when there's only one section (or none
+    /// could be read), go straight to the scan, existing single-library accounts see
+    /// no new screen. Resets to "every section on" for this sign-in: a deselection is a
+    /// Settings-time choice from here on, not something carried in from whatever was
+    /// last connected on this device.
+    func presentLibrarySelectionOrScan() async {
+        deselectedLibrarySectionKeys = []
+        LibrarySectionSelectionStore.save(deselectedLibrarySectionKeys)
+
+        let sections = await loadAllLibrarySections()
+        availableLibrarySections = sections
+
+        guard sections.count > 1 else {
+            // Nothing to choose (or sections couldn't be read right after sign-in,
+            // loadLibrary will raise its own connection error if the server is
+            // genuinely unreachable, so a transient read failure here shouldn't block
+            // the user on a screen with nothing on it).
+            await loadLibrary()
+            return
+        }
+
+        pendingLibrarySections = sections
+        needsLibrarySelection = true
+    }
+
+    /// Reads every library section across every currently selected server (or the raw
+    /// `serverURL`/`token` pair when no structured server list exists, e.g. demo/App
+    /// Review repro). Shared by onboarding and by Settings' refresh.
+    func loadAllLibrarySections() async -> [LibrarySectionRef] {
+        var collected: [LibrarySectionRef] = []
+        if selectedServers.isEmpty {
+            if let sections = try? await apiForServer(nil).loadSections() {
+                collected = sections.map {
+                    LibrarySectionRef(serverID: "", serverName: serverName, sectionKey: $0.key, title: $0.title, type: $0.type)
+                }
+            }
+        } else {
+            for server in selectedServers {
+                guard let sections = try? await apiForServer(server).loadSections() else { continue }
+                collected.append(contentsOf: sections.map {
+                    LibrarySectionRef(serverID: server.machineIdentifier, serverName: server.name, sectionKey: $0.key, title: $0.title, type: $0.type)
+                })
+            }
+        }
+        return collected
+    }
+
+    /// The onboarding library-selection screen confirmed a choice: persist which
+    /// sections stay off, then run the first scan, which will skip them entirely
+    /// (see `excludedSectionKeys(forServerID:)` and each backend's `loadLibrary`).
+    func confirmLibrarySelection(includedIDs: Set<String>) {
+        let excluded = pendingLibrarySections.filter { !includedIDs.contains($0.id) }
+        deselectedLibrarySectionKeys = Set(excluded.map(\.id))
+        LibrarySectionSelectionStore.save(deselectedLibrarySectionKeys)
+        needsLibrarySelection = false
+        pendingLibrarySections = []
+        Task { await loadLibrary() }
+    }
+
+    /// Include/exclude a server from Settings, then rescan. Won't remove the last server.
+    func toggleServer(_ server: ServerRef) {
+        let wasIncluded = selectedServers.contains(where: { $0.machineIdentifier == server.machineIdentifier })
+        if wasIncluded {
+            guard selectedServers.count > 1 else { return }
+            setSelectedServers(selectedServers.filter { $0.machineIdentifier != server.machineIdentifier })
+        } else {
+            setSelectedServers(selectedServers + [server])
+        }
+        LibrarySnapshotStore.clear()
+        Task { await loadLibrary() }
+    }
+
+    // MARK: - Library selection, Settings (I-054)
+
+    /// Re-reads every library section on every currently selected server, so Settings
+    /// can show the full set, including one picked off during onboarding, and
+    /// toggling it back on works without a relaunch. Mirrors `refreshAvailableServers`.
+    func refreshAvailableLibrarySections() async {
+        guard hasCredentials, !isDemoMode else { return }
+        availableLibrarySections = await loadAllLibrarySections()
+    }
+
+    /// Sections to show in Settings.
+    var librarySectionsForSettings: [LibrarySectionRef] { availableLibrarySections }
+
+    func isLibrarySectionDeselected(_ section: LibrarySectionRef) -> Bool {
+        deselectedLibrarySectionKeys.contains(section.id)
+    }
+
+    /// How many of the sections Settings currently knows about are turned on. Backs
+    /// the "keep at least one on" guard, the same one `toggleServer` already has for
+    /// servers, same reasoning: turning the last one off leaves nothing to scan.
+    var enabledLibrarySectionCount: Int {
+        librarySectionsForSettings.filter { !isLibrarySectionDeselected($0) }.count
+    }
+
+    /// Section keys to leave out of the scan for one specific server, the raw,
+    /// unprefixed `PlexSection.key` values a backend's `loadLibrary` expects, not
+    /// `LibrarySectionRef.id`. Used at every scan call site (the main library load and
+    /// the lighter collections sweep) so a deselected section is skipped by both.
+    func excludedSectionKeys(forServerID serverID: String) -> Set<String> {
+        let prefix = LibrarySectionRef.storageKey(serverID: serverID, sectionKey: "")
+        return Set(deselectedLibrarySectionKeys.compactMap { key -> String? in
+            guard key.hasPrefix(prefix) else { return nil }
+            return String(key.dropFirst(prefix.count))
+        })
+    }
+
+    /// Include/exclude one library section from Settings, then rescan. Mirrors
+    /// `toggleServer`: won't turn off the last enabled section, clears the saved
+    /// snapshot so a newly excluded section's items are actually gone from the next
+    /// build, and reloads so a newly re-included section is fetched again.
+    func toggleLibrarySection(_ section: LibrarySectionRef) {
+        let wasOn = !isLibrarySectionDeselected(section)
+        if wasOn {
+            guard enabledLibrarySectionCount > 1 else { return }
+            deselectedLibrarySectionKeys.insert(section.id)
+        } else {
+            deselectedLibrarySectionKeys.remove(section.id)
+        }
+        LibrarySectionSelectionStore.save(deselectedLibrarySectionKeys)
+        LibrarySnapshotStore.clear()
+        Task { await loadLibrary() }
+    }
+
+    /// Display name for a channel id, whether or not it has enough content to air.
+    /// Falls back to the full config so channels dropped for low content still resolve.
+    func channelName(for id: Int) -> String? {
+        allChannels.first(where: { $0.id == id })?.name
+            ?? channelConfigChannels.first(where: { $0.id == id })?.name
+    }
+
+    /// The channel's full definition (rules, color, minItems) whether or not it currently
+    /// has enough content to air. Same fallback as `channelName`, for Settings' "why is
+    /// this channel off the air" explainer (I-004), which needs the rules of channels
+    /// `allChannels` already dropped.
+    func channelDefinition(for id: Int) -> Channel? {
+        allChannels.first(where: { $0.id == id })
+            ?? channelConfigChannels.first(where: { $0.id == id })
+    }
+
+    /// Every channel in a bundle (config order), flagged by whether it currently has
+    /// enough content to air. Lets Settings show the full lineup and mark missing ones.
+    func bundleChannelAvailability(for bundle: ChannelBundle) -> [(id: Int, name: String, hasContent: Bool)] {
+        let availableIDs = Set(allChannels.map(\.id))
+        return bundle.channelIDs.compactMap { id in
+            guard let name = channelName(for: id) else { return nil }
+            return (id, name, availableIDs.contains(id))
+        }
+    }
+
+    /// Servers to show in the Settings list: everything discovered, plus any selected
+    /// server discovery didn't return this time (so it can still be toggled off).
+    var serversForSettings: [ServerRef] {
+        var seen = Set<String>()
+        var result: [ServerRef] = []
+        for server in availableServers + selectedServers {
+            if seen.insert(server.machineIdentifier).inserted {
+                result.append(server)
+            }
+        }
+        return result
+    }
+
+    /// Stable form for Plex base URL (discovery sometimes returns a trailing slash).
+    private static func normalizePlexServerURL(_ raw: String) -> String {
+        var s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        while s.hasSuffix("/") { s.removeLast() }
+        return s
+    }
+
+    func clearCredentials() {
+        // A deliberate sign-out (or a proven-dead token) must not read as "the device lost
+        // your sign-in" on the next launch.
+        AppDefaults.standard.removeObject(forKey: Self.hasHeldSignInMarkerKey)
+        signInLossDiagnostic = nil
+        credentialStore.delete(key: "plex_server_url")
+        credentialStore.delete(key: "plex_token")
+        credentialStore.delete(key: Self.serversKey)
+        credentialStore.delete(key: Self.backendKindKey)
+        credentialStore.delete(key: Self.jellyfinUserIdKey)
+        serverURL = ""
+        token = ""
+        serverName = ""
+        selectedServers = []
+        availableServers = []
+        backendKind = .jellyfin
+        jellyfinUserId = ""
+        LibrarySnapshotStore.clear()
+        // Any library scan still running was started for the sign-in that just ended. It
+        // must not land its items, channels or snapshot in whatever is signed in next.
+        invalidateInFlightLibraryLoads()
+    }
+
+    /// Jellyfin tokens are per-server, so a sign-in needs the URL.
+    var hasCredentials: Bool {
+        if isDemoMode { return true }
+        guard !token.isEmpty else { return false }
+        return !selectedServers.isEmpty || !serverURL.isEmpty
+    }
+
+    /// Activates a static demo experience: bundled sample channels, no network calls.
+    /// Used as an App Store review fallback so reviewers can evaluate the UI even when
+    /// they can't (or won't) connect to a real Jellyfin server.
+    func enterDemoMode() {
+        // Wipe any half-finished auth state
+        cancelPINAuth()
+        errorMessage = nil
+        authError = nil
+        lastFailureDiagnostic = nil
+        justAuthenticated = false
+
+        isDemoMode = true
+        serverName = "Demo"
+        isConnected = true
+        isLoading = false
+
+        let demoChannels = DemoData.channels()
+        allChannels = demoChannels
+        channels = demoChannels
+        allItems = demoChannels.flatMap { $0.itemPool }
+
+        if currentChannel == nil, let first = channels.first {
+            selectChannel(first)
+        }
+
+        // Test-only: layer an enriched sample library over the demo so the FRANCHISES
+        // package has something to find. See DemoData.franchiseFixture.
+        if DemoData.franchiseFixtureRequested {
+            Task { await installFranchiseFixture() }
+        }
+    }
+
+    // MARK: - Connection
+
+    func testConnection() async {
+        errorMessage = nil
+        do {
+            let name = try await api.testConnection()
+            serverName = name
+            isConnected = true
+            saveCredentials()
+        } catch let api as MediaServerKit.APIError {
+            isConnected = false
+            errorMessage = Self.userFacingServerError(api, justAuthenticated: justAuthenticated, backend: backendKind)
+            lastFailureDiagnostic = diagnosticString(for: api)
+        } catch {
+            isConnected = false
+            errorMessage = "Could not connect. Check URL and token."
+        }
+    }
+
+    // MARK: - Unauthorized handling
+
+    static let lastSignOutNoticeKey = "jftv_last_signout_notice"
+
+    /// A 401 during a library load never costs the user their sign-in. Relay tunnels,
+    /// reverse proxies and servers coming out of sleep all answer 401 for a healthy
+    /// token, and every automatic sign-out this app ever shipped was eventually traced
+    /// to one of those. The token stays; the message says what we know, and the user can
+    /// Disconnect from Settings if they want a fresh start.
+    func resolveUnauthorizedLoadFailure() async {
+        let validity: TokenValidity = .unknown
+        print("[JFTV] AUTH: 401 on library load, token \(validity), session kept")
+        errorMessage = Self.unauthorizedLoadMessage(tokenValidity: validity, backend: backendKind)
+        lastFailureDiagnostic = "\(lastFailureDiagnostic ?? "401") · token \(validity) · session kept"
+    }
+
+    static func unauthorizedLoadMessage(tokenValidity: TokenValidity, backend: MediaBackendKind) -> String {
+        switch tokenValidity {
+        case .valid:
+            return "Your sign-in is still valid, but the server refused the request. It may still be waking up, or a proxy in front of it returned 401. Try again in a moment."
+        case .invalid:
+            return "The server reports this sign-in is no longer valid. Your saved sign-in was kept. To start fresh, open Settings, choose Disconnect, then connect again."
+        case .unknown:
+            return "Your server refused the request. Your sign-in has been kept. Try again once the server is awake and online; if it keeps happening, open Settings and choose Disconnect, then sign in again."
+        }
+    }
+
+    /// Maps client errors surfaced during library loads and connection checks.
+    ///
+    /// `justAuthenticated=true` means we're seeing this error on the first library load
+    /// after a fresh sign-in. In that case `.unauthorized` is NOT a session expiry —
+    /// it almost always means the account lacks library access on the server. The
+    /// reworded message keeps reviewers (and users) from being told their session
+    /// expired on the very screen they just signed in from.
+    static func userFacingServerError(
+        _ error: MediaServerKit.APIError,
+        justAuthenticated: Bool = false,
+        backend: MediaBackendKind = .jellyfin
+    ) -> String {
+        let server = backend.displayName
+        switch error {
+        case .unauthorized:
+            if justAuthenticated {
+                return "Signed in, but this account can't access any libraries on your \(server) server. Open the \(server) dashboard, find this user, and confirm they have access to at least one library, then try again."
+            }
+            return "Session expired. Please reconnect in Settings."
+        case .invalidResponse:
+            return "Invalid reply from \(server). Disconnect and reconnect in Settings."
+        case .noReachableServer:
+            return "Signed in, but your \(server) server stopped answering. Confirm it is running and reachable at the address you entered, then try again."
+        case .httpFailure(let code):
+            return "\(server) (or your network path) returned HTTP \(code). If you use a reverse proxy or custom domain, confirm it passes the \(server) API through without injecting a login page. Check that the address includes the right port, then reconnect."
+        case .receivedMarkupInsteadOfJSON:
+            return "This \(server) URL returned a web page instead of the data the app expects. That usually means a proxy, a captive portal, or the wrong hostname or port. Disconnect in Settings, sign in again, or open \(server) using the server's LAN address."
+        }
+    }
+
+    /// Short, monospaced diagnostic for the failure screen. Server URL + HTTP code or short
+    /// reason. Designed to be readable in a rejection screenshot so we can debug remotely.
+    func diagnosticString(for error: MediaServerKit.APIError) -> String {
+        let host = URL(string: serverURL)?.host ?? (serverURL.isEmpty ? "no server" : serverURL)
+        switch error {
+        case .unauthorized:                       return "\(host) · 401 unauthorized"
+        case .invalidResponse:                    return "\(host) · invalid response"
+        case .noReachableServer:                  return "discovery · no candidate reachable"
+        case .httpFailure(let code):              return "\(host) · HTTP \(code)"
+        case .receivedMarkupInsteadOfJSON(let c): return "\(host) · HTTP \(c) markup"
+        }
+    }
+
+    static func userFacingLoadLibraryError(_ error: Error, backend: MediaBackendKind = .jellyfin) -> String {
+        if let apiErr = error as? MediaServerKit.APIError {
+            return userFacingServerError(apiErr, backend: backend)
+        }
+        if let stalled = error as? LibraryLoadStalled {
+            // Nothing usable came back, so there is no guide to fall back on. Say what
+            // happened and what to check, not "failed to load library".
+            return stalled.userInitiated
+                ? "Stopped waiting. Nothing had come back from your server, so no channels were built. Retry when the connection looks better."
+                : "Your server stopped sending data partway through the scan and never resumed. Check that it is awake and reachable on this network, then Retry."
+        }
+        if error is DecodingError {
+            return "Your server returned unexpected data. Update your media server software, or disconnect and reconnect in Settings."
+        }
+        let urlErr = error as? URLError
+            ?? ((error as NSError).underlyingErrors.first as? URLError)
+        if let urlErr {
+            switch urlErr.code {
+            case .timedOut:
+                return "Timed out loading your library. Large libraries can need a second attempt, so press RETRY. If it keeps timing out, use Settings to pick a closer server address."
+            case .cannotFindHost, .cannotConnectToHost, .dnsLookupFailed, .networkConnectionLost:
+                return "Can't reach the server address saved on this device. Open Settings and reconnect while on the same network as your server."
+            case .notConnectedToInternet:
+                return "No internet connection. Check Wi‑Fi, then Retry."
+            case .cancelled:
+                return "Failed to load library. Check that your server is running and reachable."
+            default:
+                break
+            }
+        }
+        return "Failed to load library. Check that your server is running and reachable."
+    }
+
+    // MARK: - Auth messages
+
+    /// Shown on the Jellyfin password screen when a Quick Connect code runs out. That screen
+    /// has USE QUICK CONNECT and the password fields, so the line names both.
+    static let quickConnectCodeExpiredMessage = "The code expired. Press USE QUICK CONNECT for a new one, or sign in with your password."
+
+    /// "Could not reach" hid every cause behind one line. The one that cost a user days:
+    /// tvOS refusing a plain http:// URL outside the private LAN ranges (a Tailscale or
+    /// other VPN address), which the app reported exactly like a dead server.
+    static func serverUnreachableMessage(_ error: Error, backend: String) -> String {
+        if let urlError = error as? URLError {
+            switch urlError.code {
+            case .appTransportSecurityRequiresSecureConnection:
+                return "tvOS blocked the plain http:// address (ATS error -1022). Update JFTV, or use https:// if you are on an older build."
+            case .cannotFindHost, .dnsLookupFailed:
+                return "Could not find that host. Check the address."
+            case .cannotConnectToHost:
+                return "Nothing answered at that address and port. Check the port (Jellyfin defaults to 8096)."
+            case .timedOut:
+                return "The \(backend) server took too long to answer. Check the address, or that the Apple TV can reach it."
+            case .notConnectedToInternet, .networkConnectionLost:
+                return "No network. Check the Apple TV's connection."
+            case .serverCertificateUntrusted, .serverCertificateHasBadDate, .serverCertificateHasUnknownRoot, .serverCertificateNotYetValid, .secureConnectionFailed:
+                return "The server's HTTPS certificate is not trusted by the Apple TV (error \(urlError.code.rawValue))."
+            default:
+                return "Could not reach the \(backend) server (error \(urlError.code.rawValue)). Check the address."
+            }
+        }
+        return "Could not reach the \(backend) server. Check the address."
+    }
+
+    func cancelPINAuth() {
+        pinPollTask?.cancel()
+        pinPollTask = nil
+        isAuthInProgress = false
+        jellyfinQuickConnectCode = ""
+        authError = nil
+    }
+
+    /// Force a fresh library scan: clears the on-disk snapshot and pulls everything from Plex again.
+    /// Use when the user wants to pick up library changes without signing out.
+    func rescanLibrary() async {
+        guard hasCredentials else { return }
+        LibrarySnapshotStore.clear()
+        DailyManifestStore.clearAll(credentialFingerprint: scheduleCredentialFingerprint)
+        await loadLibrary()
+    }
+
+    func disconnect() {
+        let outgoing = playbackTracker
+        playbackTracker = nil
+        outgoing?.stop()
+        cancelPINAuth()
+        invalidatePlaybackAttempt()
+        cancellables.removeAll()
+        stopActiveTranscodeIfNeeded()
+        player?.pause()
+        player = nil
+        isVideoPlaying = false
+        currentChannel = nil
+        currentItem = nil
+        playbackState = .idle
+        isFullScreen = false
+        channels = []
+        allChannels = []
+        allItems = []
+        // Collection rows hold resolved items from the old server; a later materialise
+        // would put them straight back into the guide.
+        collectionScanTask?.cancel()
+        collectionScanTask = nil
+        enrichmentRefillTask?.cancel()
+        enrichmentRefillTask = nil
+        bundleBuildTask?.cancel()
+        bundleBuildTask = nil
+        pendingBundleBuildIDs = []
+        buildingBundleIDs = []
+        discoveredCollections = []
+        isLibraryStale = false
+        // Today's schedules for the outgoing sign-in go with it. Computed before
+        // clearCredentials resets the backend, or this would name the wrong directory.
+        DailyManifestStore.clearAll(credentialFingerprint: scheduleCredentialFingerprint)
+        clearCredentials()
+        serverName = ""
+        isConnected = false
+        justAuthenticated = false
+        lastFailureDiagnostic = nil
+        isDemoMode = false
+    }
+
+    // MARK: - Jellyfin Auth
+
+    /// Username/password login against a Jellyfin server URL. On success switches the
+    /// backend to Jellyfin, persists credentials, and loads the library.
+    func authenticateJellyfin(serverURL rawURL: String, username: String, password: String) {
+        let url = Self.normalizeJellyfinServerURL(rawURL)
+        guard !url.isEmpty else { authError = "Enter your Jellyfin server URL."; return }
+        guard !username.isEmpty else { authError = "Enter your Jellyfin username."; return }
+
+        pinPollTask?.cancel()
+        authError = nil
+        isAuthInProgress = true
+        pinPollTask = Task {
+            do {
+                let (url, result) = try await Self.tryServerCandidates(rawURL) {
+                    try await JellyfinAPIService.authenticate(serverURL: $0, username: username, password: password)
+                }
+                guard !Task.isCancelled else { return }
+                await completeJellyfinAuth(serverURL: url, result: result)
+            } catch let api as MediaServerKit.APIError {
+                guard !Task.isCancelled else { return }
+                isAuthInProgress = false
+                authError = api == .unauthorized
+                    ? "Incorrect username or password."
+                    : "Could not reach the Jellyfin server. Check the address."
+            } catch {
+                guard !Task.isCancelled else { return }
+                isAuthInProgress = false
+                authError = Self.serverUnreachableMessage(error, backend: "Jellyfin")
+            }
+        }
+    }
+
+    /// Quick Connect login: shows a code the user approves in their Jellyfin dashboard,
+    /// then polls until approved and exchanges the secret for an access token.
+    func startJellyfinQuickConnect(serverURL rawURL: String) {
+        let url = Self.normalizeJellyfinServerURL(rawURL)
+        guard !url.isEmpty else { authError = "Enter your Jellyfin server URL."; return }
+
+        pinPollTask?.cancel()
+        authError = nil
+        isAuthInProgress = true
+        jellyfinQuickConnectCode = ""
+        pinPollTask = Task {
+            do {
+                let (url, initiated) = try await Self.tryServerCandidates(rawURL) {
+                    try await JellyfinAPIService.quickConnectInitiate(serverURL: $0)
+                }
+                guard !Task.isCancelled else { return }
+                jellyfinQuickConnectCode = initiated.code
+
+                var attempts = 0
+                while !Task.isCancelled {
+                    try? await Task.sleep(for: .seconds(2))
+                    guard !Task.isCancelled else { break }
+                    attempts += 1
+                    if attempts > 150 {
+                        authError = Self.quickConnectCodeExpiredMessage
+                        isAuthInProgress = false
+                        jellyfinQuickConnectCode = ""
+                        break
+                    }
+                    let approved = (try? await JellyfinAPIService.quickConnectCheck(serverURL: url, secret: initiated.secret)) ?? false
+                    guard approved else { continue }
+
+                    let result = try await JellyfinAPIService.quickConnectAuthenticate(serverURL: url, secret: initiated.secret)
+                    guard !Task.isCancelled else { return }
+                    await completeJellyfinAuth(serverURL: url, result: result)
+                    break
+                }
+            } catch {
+                guard !Task.isCancelled else { return }
+                isAuthInProgress = false
+                jellyfinQuickConnectCode = ""
+                authError = Self.quickConnectFailureMessage(error)
+            }
+        }
+    }
+
+    /// Shared success path for both Jellyfin auth methods.
+    private func completeJellyfinAuth(serverURL url: String, result: JellyfinAPIService.AuthResult) async {
+        backendKind = .jellyfin
+        token = result.accessToken
+        jellyfinUserId = result.userId
+        serverURL = url
+        serverName = result.serverName
+
+        let machineID = result.serverID.isEmpty ? url : result.serverID
+        let ref = ServerRef(machineIdentifier: machineID, name: result.serverName,
+                            baseURL: url, owned: true, token: result.accessToken, userId: result.userId)
+        availableServers = [ref]
+
+        isAuthInProgress = false
+        jellyfinQuickConnectCode = ""
+        justAuthenticated = true
+        lastFailureDiagnostic = nil
+
+        setSelectedServers([ref])   // persists selectedServers + syncs primary fields
+        saveCredentials()           // persists backendKind, token, serverURL, jellyfinUserId
+        await presentLibrarySelectionOrScan()
+    }
+
+    /// Cleans up a typed Jellyfin address (see `ServerURLNormalizer`). Only used to
+    /// check that something usable was typed; sign-in itself tries every candidate.
+    static func normalizeJellyfinServerURL(_ raw: String) -> String {
+        ServerURLNormalizer.normalize(raw)
+    }
+
+    /// Runs a sign-in call against each candidate base URL in order and returns the one
+    /// that answered. A bare IP tries `:8096` first and the address as typed second.
+    /// Moves on only when the first try clearly hit the wrong place (nothing listening,
+    /// a 404, or a web page); a wrong password or a timeout is a real answer and stops.
+    static func tryServerCandidates<T>(_ raw: String, _ operation: (String) async throws -> T) async throws -> (url: String, value: T) {
+        let candidates = ServerURLNormalizer.candidates(raw)
+        guard !candidates.isEmpty else { throw MediaServerKit.APIError.invalidResponse }
+        for (index, url) in candidates.enumerated() {
+            do {
+                return (url, try await operation(url))
+            } catch {
+                guard index < candidates.count - 1, isWrongPlaceError(error) else { throw error }
+            }
+        }
+        throw MediaServerKit.APIError.invalidResponse
+    }
+
+    /// Quick Connect failing to start was one message for two different problems, and the
+    /// common one (the server wasn't reachable at that address) got the wrong advice.
+    /// Jellyfin answers 401 when Quick Connect is switched off.
+    static func quickConnectFailureMessage(_ error: Error) -> String {
+        if error is URLError { return serverUnreachableMessage(error, backend: "Jellyfin") }
+        switch error as? MediaServerKit.APIError {
+        case .unauthorized?:
+            return "Quick Connect is off on this server. Turn it on in Jellyfin (Dashboard, then General), or sign in with your password."
+        case .httpFailure(statusCode: 404)?, .receivedMarkupInsteadOfJSON?:
+            return "That address answered, but it isn't Jellyfin. Check the address and port (Jellyfin uses 8096)."
+        default:
+            return "Could not start Quick Connect. Check the server address, or sign in with your password."
+        }
+    }
+
+    static func isWrongPlaceError(_ error: Error) -> Bool {
+        if let urlError = error as? URLError { return urlError.code == .cannotConnectToHost }
+        switch error as? MediaServerKit.APIError {
+        case .httpFailure(statusCode: 404)?, .receivedMarkupInsteadOfJSON?: return true
+        default: return false
+        }
+    }
+}

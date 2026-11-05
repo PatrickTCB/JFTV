@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "about": "Golden cases for the Jellyfin and Emby connect screens (the sign-in redesign, Apple TV 1.0.28). Read by scripts/nostalgex-signin-smoke.mjs (scripts/nostalgex-signin.js, web tuner and Docker; npm run test:signin). Written from Nostalgex/NostalgexTests/SignInFlowTests.swift and ServerURLNormalizerTests.swift and the spec in the Apple TV app, so a Swift test (ServerURLNormalizer.candidates, LANServerDiscovery.parse and dedupe, SignInFlow.outcome, parsePublicInfo, parseQuickConnectEnabled, parsePublicUsers, preferredMethod, offersQuickConnect) and the Roku port can read the same file. Bodies are the raw text a server sends. null means none (no server, can't say).",
+  "about": "Golden cases for the Jellyfin and Emby connect screens (the sign-in redesign, Apple TV 1.0.28). Read by scripts/signin-smoke.mjs (upstream web-engine test, removed in this fork) (scripts/signin.js (upstream web-engine script, removed in this fork), web tuner and Docker; npm run test:signin). Written from JFTV/JFTVTests/SignInFlowTests.swift and ServerURLNormalizerTests.swift and the spec in the Apple TV app, so a Swift test (ServerURLNormalizer.candidates, LANServerDiscovery.parse and dedupe, SignInFlow.outcome, parsePublicInfo, parseQuickConnectEnabled, parsePublicUsers, preferredMethod, offersQuickConnect) and the Roku port can read the same file. Bodies are the raw text a server sends. null means none (no server, can't say).",
   "candidates": [
     {
       "raw": "192.0.2.10",

@@ -1,4 +1,4 @@
-# Nostalgex (Jellyfin, Apple TV) — tvOS unit tests
+# JFTV (Jellyfin, Apple TV) — tvOS unit tests
 # This fork is a Jellyfin-only Apple TV app. The web tuner, marketing site,
 # Docker container and Roku port that used to live in this repo are gone, so
 # CI only builds and tests the tvOS app.
@@ -20,7 +20,7 @@ concurrency:
 
 jobs:
   tvos-unit-tests:
-    name: tvOS unit tests (NostalgexTests)
+    name: tvOS unit tests (JFTVTests)
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v7
@@ -31,18 +31,18 @@ jobs:
           xcodebuild -version
           xcrun simctl list devices available "tvOS" | head -40
 
-      - name: Run NostalgexTests
+      - name: Run JFTVTests
         # TEST_RUNNER_ vars reach the test host without the prefix. The two
         # discovery timing tests skip on these shared runners; they run locally.
         env:
-          TEST_RUNNER_NOSTALGEX_SKIP_TIMING: "1"
+          TEST_RUNNER_JFTV_SKIP_TIMING: "1"
         run: |
           set -eo pipefail
           xcodebuild test \
-            -project Nostalgex/Nostalgex.xcodeproj \
-            -scheme Nostalgex \
+            -project JFTV/JFTV.xcodeproj \
+            -scheme JFTV \
             -destination 'platform=tvOS Simulator,name=Apple TV 4K (3rd generation)' \
-            -only-testing:NostalgexTests \
+            -only-testing:JFTVTests \
             CODE_SIGN_IDENTITY="-" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO

@@ -10,14 +10,14 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-ARCHIVE=/tmp/Nostalgex.xcarchive
-EXPORT=/tmp/nostalgex-export
+ARCHIVE=/tmp/JFTV.xcarchive
+EXPORT=/tmp/jftv-export
 # altool (validate, upload) reads its key from ~/.appstoreconnect/private_keys.
 KEY_ID=2Y8K8NTUV3
 ISSUER=e9e9d3ec-0c04-4694-bcb9-55e8407672f6
 # xcodebuild signs with automatic signing and this key, so it can fetch or update
 # the App Store profiles with every capability the targets have (iCloud, App
-# Groups). See the comment in Nostalgex/ExportOptions.plist.
+# Groups). See the comment in JFTV/ExportOptions.plist.
 SIGN_KEY_ID=BF3LR5NQQK
 SIGN_KEY_PATH="$HOME/.appstoreconnect/AuthKey_$SIGN_KEY_ID.p8"
 SIGNING=(
@@ -29,16 +29,16 @@ SIGNING=(
 [ -f "$SIGN_KEY_PATH" ] || { echo "missing $SIGN_KEY_PATH"; exit 1; }
 DRY_RUN=${1:-}
 
-VERSION=$(grep -m1 "MARKETING_VERSION = " "$ROOT/Nostalgex/Nostalgex.xcodeproj/project.pbxproj" | sed 's/.*= *//;s/;//')
-BUILD=$(grep -m1 "CURRENT_PROJECT_VERSION = " "$ROOT/Nostalgex/Nostalgex.xcodeproj/project.pbxproj" | sed 's/.*= *//;s/;//')
+VERSION=$(grep -m1 "MARKETING_VERSION = " "$ROOT/JFTV/JFTV.xcodeproj/project.pbxproj" | sed 's/.*= *//;s/;//')
+BUILD=$(grep -m1 "CURRENT_PROJECT_VERSION = " "$ROOT/JFTV/JFTV.xcodeproj/project.pbxproj" | sed 's/.*= *//;s/;//')
 echo "==> Releasing $VERSION (build $BUILD)"
 
 rm -rf "$ARCHIVE" "$EXPORT"
 
 echo "==> Archiving"
 xcodebuild archive \
-  -project "$ROOT/Nostalgex/Nostalgex.xcodeproj" \
-  -scheme Nostalgex \
+  -project "$ROOT/JFTV/JFTV.xcodeproj" \
+  -scheme JFTV \
   -destination 'generic/platform=tvOS' \
   -archivePath "$ARCHIVE" \
   "${SIGNING[@]}" > /tmp/release-archive.log 2>&1 \
@@ -46,7 +46,7 @@ xcodebuild archive \
 
 # The app is useless without current channel data, and the copy phase pulls it
 # from the repo root, so confirm it actually landed rather than trusting it.
-APP="$ARCHIVE/Products/Applications/Nostalgex.app"
+APP="$ARCHIVE/Products/Applications/JFTV.app"
 for f in channels.json channels-memberships.json; do
   [ -f "$APP/$f" ] || { echo "MISSING $f in the archive"; exit 1; }
 done
@@ -56,7 +56,7 @@ echo "==> Exporting"
 xcodebuild -exportArchive \
   -archivePath "$ARCHIVE" \
   -exportPath "$EXPORT" \
-  -exportOptionsPlist "$ROOT/Nostalgex/ExportOptions.plist" \
+  -exportOptionsPlist "$ROOT/JFTV/ExportOptions.plist" \
   "${SIGNING[@]}" > /tmp/release-export.log 2>&1 \
   || { echo "export failed, see /tmp/release-export.log"; grep -E "error:" /tmp/release-export.log | head; exit 1; }
 
@@ -66,7 +66,7 @@ xcodebuild -exportArchive \
 run_altool() {
   local action="$1" marker="$2" log="$3"
   set +e
-  xcrun altool "$action" -f "$EXPORT/Nostalgex.ipa" -t tvos \
+  xcrun altool "$action" -f "$EXPORT/JFTV.ipa" -t tvos \
     --apiKey "$KEY_ID" --apiIssuer "$ISSUER" 2>&1 | tee "$log"
   set -e
   if ! grep -q "$marker" "$log"; then

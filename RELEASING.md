@@ -1,11 +1,11 @@
 # Releasing the Apple TV app
 
-This fork ships one thing: the **tvOS app** (`Nostalgex/`) through App Store Connect. The web
+This fork ships one thing: the **tvOS app** (`JFTV/`) through App Store Connect. The web
 site, Docker container and Roku port from the upstream repo are gone.
 
 ## Where the version numbers live
 
-Both in `Nostalgex/Nostalgex.xcodeproj/project.pbxproj`, and both appear **twice** (Debug and
+Both in `JFTV/JFTV.xcodeproj/project.pbxproj`, and both appear **twice** (Debug and
 Release config blocks). Change all four values or the two configs drift.
 
 | Key | Meaning |
@@ -14,7 +14,7 @@ Release config blocks). Change all four values or the two configs drift.
 | `CURRENT_PROJECT_VERSION` | The build number, e.g. `1` |
 
 ```
-grep -n "MARKETING_VERSION\|CURRENT_PROJECT_VERSION" Nostalgex/Nostalgex.xcodeproj/project.pbxproj
+grep -n "MARKETING_VERSION\|CURRENT_PROJECT_VERSION" JFTV/JFTV.xcodeproj/project.pbxproj
 ```
 
 `TVOS_DEPLOYMENT_TARGET` is in the same file (currently **18.0**). If you raise it, the App Store
@@ -37,10 +37,10 @@ still free to reuse, but confirm that in TestFlight rather than assuming.
 
 1. Do the build-number check above, then bump `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION` in
    both config blocks.
-2. Update `Nostalgex/APP_STORE_METADATA.md` with the release notes for this version.
-3. Re-read `Nostalgex/PRIVACY_POLICY.md`. If the release changed what data the app touches, it has
+2. Update `JFTV/APP_STORE_METADATA.md` with the release notes for this version.
+3. Re-read `JFTV/PRIVACY_POLICY.md`. If the release changed what data the app touches, it has
    to say so before submission.
-4. Make sure `NostalgexTests` passes (see `CLAUDE.md` for the command).
+4. Make sure `JFTVTests` passes (see `CLAUDE.md` for the command).
 5. Archive and upload. Either:
    - Xcode -> Product -> Archive -> Distribute App -> App Store Connect, or
    - `scripts/release-tvos.sh` (archive -> validate -> upload; `--dry-run` stops before upload).
@@ -56,7 +56,7 @@ Tag every uploaded build right after the upload succeeds, so the git history is 
 of what Apple has:
 
 ```
-git tag -a v1.0.0-build1 -m "Nostalgex 1.0.0 (build 1)"
+git tag -a v1.0.0-build1 -m "JFTV 1.0.0 (build 1)"
 git push origin v1.0.0-build1
 ```
 

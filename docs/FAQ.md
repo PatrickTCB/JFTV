@@ -9,7 +9,7 @@ Work through these in order.
 2. **Read the error.** The connect screen names the cause: transport security, unknown host, wrong
    port, timeout, or certificate. Each points at a different fix.
 3. **Does another app on the same Apple TV reach the same server?** If Swiftfin or the Jellyfin app
-   connects and Nostalgex does not, the address and the exact error text are the useful detail. If
+   connects and JFTV does not, the address and the exact error text are the useful detail. If
    nothing connects, it is the network or the server, not the app.
 4. **Plain http to a non-local address** (VPN, Tailscale, a public IP) needs the app's App Transport
    Security setting to allow arbitrary loads, which this app does.

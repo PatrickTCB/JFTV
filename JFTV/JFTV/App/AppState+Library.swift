@@ -1,0 +1,771 @@
+import Foundation
+import os
+import Observation
+import SwiftUI
+import AVFoundation
+import Combine
+import UIKit
+
+// Library loading, snapshot hydration and restore.
+// Split out of AppState.swift; behavior unchanged.
+extension AppState {
+    // MARK: - Library loading
+
+    private func markInitialLibraryLoadComplete() {
+        AppDefaults.standard.set(true, forKey: Self.initialLoadCompleteKey)
+    }
+
+    func setLibraryPhase(_ phase: LibraryLoadPhase, detail: String = "") {
+        libraryLoadPhase = phase
+        libraryLoadDetail = detail
+        loadingMessage = phase.headline(detail: detail)
+    }
+
+    /// Lets SwiftUI paint each load phase before the next stretch of work (avoids steps appearing pre-checked).
+    private func briefUILBeat() async {
+        await Task.yield()
+        try? await Task.sleep(nanoseconds: 220_000_000)
+    }
+
+    private func pulseLibraryPhase(_ phase: LibraryLoadPhase, detail: String = "") async {
+        setLibraryPhase(phase, detail: detail)
+        await briefUILBeat()
+    }
+
+    private static let musicBundleID = "high-rotation"
+
+    private var isMusicBundleEnabled: Bool {
+        enabledBundleIDs.contains(Self.musicBundleID)
+    }
+
+    /// Apply on-disk MusicBrainz rows only (no network).
+    private func applyMusicCacheToLibrary() {
+        musicEnrichmentService.loadDiskCache()
+        allItems = musicEnrichmentService.itemsWithDisplayMetadata(allItems)
+    }
+
+    /// MusicBrainz is rate-limited (~1 req/s); don't block first tune-in unless user wants music channels.
+    private func startDeferredMusicEnrichmentIfNeeded() {
+        guard isMusicBundleEnabled else { return }
+        let musicVideos = allItems.filter { ($0.librarySource ?? .movie) == .musicVideo }
+        guard !musicVideos.isEmpty else { return }
+
+        Task { [weak self] in
+            guard let self else { return }
+            print("[MusicEnrichment] Background pass for \(musicVideos.count) music videos (High Rotation bundle on)")
+            await self.musicEnrichmentService.enrichMusicVideos(self.allItems)
+            await MainActor.run {
+                self.allItems = self.musicEnrichmentService.itemsWithDisplayMetadata(self.allItems)
+                self.allChannels = self.musicEnrichmentService.refreshChannelPools(self.allChannels, from: self.allItems)
+                self.applyBundleFilter()
+                if let current = self.currentChannel {
+                    self.selectChannel(current)
+                }
+                self.saveLibrarySnapshotIfNeeded()
+            }
+        }
+    }
+
+    private func refreshLibraryLoadStepRail(includesCollections: Bool, includesMusic: Bool) {
+        libraryLoadVisibleSteps = LibraryLoadPhase.visibleSteps(
+            includesCollections: includesCollections,
+            includesMusic: includesMusic
+        )
+    }
+
+    /// What the stall watch compares. These are the counters a live scan keeps moving, so a
+    /// scan that is still finding items is never interrupted no matter how long it takes.
+    private func libraryScanProgressSample() -> LibraryLoadProgressSample {
+        LibraryLoadProgressSample(
+            phase: libraryLoadPhase.rawValue,
+            sectionIndex: scanSectionIndex,
+            totalSections: scanTotalSections,
+            itemsFound: scanItemsFound,
+            detail: libraryLoadDetail
+        )
+    }
+
+    func loadLibrary(background: Bool = false) async {
+        guard hasCredentials else { return }
+        // Demo mode is fully bundled — never hit the network
+        if isDemoMode { return }
+        // Cleared by the defer on every end this process lives to see. Still set at the
+        // next launch means the app died inside this load (LaunchGuard). Only a load the
+        // viewer is waiting on counts: tvOS ending a suspended app during a background
+        // refresh says nothing about whether the library can load.
+        let tracksLoad = LaunchGuard.tracksLoad(background: background, hasChannels: !channels.isEmpty)
+        // A load runs its own enrichment pass; a refill still going from a restore would run
+        // a second one beside it (a stale restore's refresh, RESCAN, the daily check).
+        enrichmentRefillTask?.cancel()
+        enrichmentRefillTask = nil
+        if tracksLoad { LaunchGuard.loadStarted() }
+        defer { if tracksLoad { LaunchGuard.loadEnded() } }
+        InstallDiagnostics.note("loadLibrary: background=\(background) channels=\(self.channels.count) servers=\(self.selectedServers.count) lastLoadAge=\(Int(Date().timeIntervalSince1970) - self.lastLoadAtUnix)s")
+        if !isUITestStubLibrarySuccess {
+            if !background { isLoading = true; loadingMessage = "LOADING YOUR LIBRARY..." }
+        }
+
+        let isBackground = background && !channels.isEmpty
+
+        // The sign-in this load is for. Taken after server recovery, which may itself
+        // replace the server list. Checked after every await that precedes a commit: a
+        // Disconnect or a new sign-in while a scan is out means its results are for a
+        // library the user has left, and they must not touch the one they moved to.
+        let session = librarySessionGeneration
+        func superseded() -> Bool {
+            guard librarySessionGeneration != session else { return false }
+            print("[JFTV] LOAD: sign-in changed while the scan was running, discarding its results")
+            isLoadStalling = false
+            if isBackground {
+                isBackgroundRefreshing = false
+            } else if !hasCredentials {
+                isLoading = false
+            }
+            return true
+        }
+
+        if isUITestStubLibrarySuccess {
+            isLoading = true
+            loadingMessage = "LOADING CHANNELS..."
+            errorMessage = nil
+
+            let stubChannel = Channel(
+                id: 1,
+                number: 1,
+                name: "STUB",
+                color: .blue,
+                category: nil,
+                rules: nil,
+                timeRestrictions: nil,
+                minItems: 0,
+                itemPool: []
+            )
+            allChannels = [stubChannel]
+            channels = [stubChannel]
+            isLoading = false
+            return
+        }
+
+        let buildAllConfigChannels = isFirstLibraryLoad
+        let hasAnyCollectionBundle = CollectionCategory.allCases.contains {
+            enabledBundleIDs.contains($0.bundleID)
+        }
+
+        // A "stop waiting" pressed as the previous scan was finishing must not carry over
+        // and abandon this one on its first poll.
+        loadCancelRequested = false
+        isLoadStalling = false
+
+        if isBackground {
+            isBackgroundRefreshing = true
+        } else {
+            isLoading = true
+            errorMessage = nil
+            channelBuildIndex = 0
+            channelBuildTotal = 0
+        }
+
+        refreshLibraryLoadStepRail(includesCollections: hasAnyCollectionBundle, includesMusic: false)
+        await pulseLibraryPhase(.preparing, detail: isFirstLibraryLoad ? "First setup" : "Updating lineup")
+
+        // Migrate legacy "collections" bundle ID if needed
+        migrateCollectionBundleIDs()
+
+        // Load channel + bundle config: try server first, fall back to bundled
+        await pulseLibraryPhase(.preparing, detail: "Loading channel rules")
+        let config = await loadChannelConfig()
+
+        // Store bundles, applying persisted enabled/disabled state
+        bundles = config.bundles.map { def in
+            def.toChannelBundle(enabled: enabledBundleIDs.contains(def.id))
+        }
+
+        // Store exclusive rules for channel ownership
+        exclusiveRules = config.exclusiveRules
+
+        await pulseLibraryPhase(.preparing, detail: "\(config.bundles.count) bundles · \(enabledBundleIDs.count) on")
+        await pulseLibraryPhase(.scanningLibrary, detail: "Connecting to \(backendDisplayName)")
+        scanSectionIndex = 0
+        scanTotalSections = 0
+        scanItemsFound = 0
+
+        do {
+            // Scan every selected server (the token is account-level and works on all of
+            // them) and merge. Items are tagged with their server id inside each service,
+            // so playback can route back to the right server later.
+            let apisToScan: [any MediaBackend] = selectedServers.isEmpty
+                ? [api]
+                : selectedServers.map { apiForServer($0) }
+            let serverNames: [String] = selectedServers.isEmpty ? [serverName] : selectedServers.map(\.name)
+            let multiServer = apisToScan.count > 1
+
+            var merged: [PlexMediaItem] = []
+            var successCount = 0
+            var lastError: Error?
+            // Set when a scan was abandoned rather than finishing. What follows is built
+            // from whatever was fetched, and the library is marked stale so a later
+            // refresh fills in the rest.
+            var scanWasAbandoned = false
+
+            for (serverIndex, scanAPI) in apisToScan.enumerated() {
+                // Signed out (Disconnect, START OVER) while the previous server was being
+                // read: this scan is for a sign-in that has ended, so the next server is
+                // not asked for anything with the old token. `superseded()` below then
+                // drops what was fetched. The stall watch used to be the only thing to
+                // notice, at its first poll, after up to 2s of requests.
+                if librarySessionGeneration != session { break }
+                let serverLabel = serverIndex < serverNames.count ? serverNames[serverIndex] : "Plex"
+                let baseCount = merged.count
+                // Computed outside the `@Sendable operation:` closure below (a `Set<String>`
+                // local capture is trivially Sendable; `self` is not), see each backend's
+                // `loadLibrary`: a key in here is skipped before any item request for it.
+                let excludedKeys = excludedSectionKeys(forServerID: scanAPI.serverID)
+                // A STOP WAITING press belongs to the server it was made on. One that lands
+                // as the previous server finishes (after its last stall poll) was never
+                // consumed, and used to abandon this server, a healthy scan, at its first
+                // poll (issue #146). The "still waiting" block goes too: that server
+                // answered, so the button must not stay up offering to stop this one.
+                // START OVER is unaffected: it also ends the sign-in, which the abort
+                // check below reads on its own.
+                loadCancelRequested = false
+                isLoadStalling = false
+                do {
+                    let items = try await withLibraryLoadStallWatch(
+                        sample: { [weak self] in self?.libraryScanProgressSample() ?? LibraryLoadProgressSample() },
+                        onVerdict: { [weak self] verdict in
+                            guard let self else { return }
+                            // A background refresh has no loading screen to warn on, and the
+                            // user is mid-program: stay silent and let the watchdog resolve
+                            // it without touching what's on screen.
+                            guard !isBackground else { return }
+                            switch verdict {
+                            case .progressing: self.isLoadStalling = false
+                            case .slow, .stalled: self.isLoadStalling = true
+                            }
+                        },
+                        // A sign-in change also ends the scan early rather than letting
+                        // minutes of requests run against a server the user left.
+                        abortRequested: { [weak self] in
+                            guard let self else { return true }
+                            return self.consumeLoadCancelRequest() || self.librarySessionGeneration != session
+                        },
+                        operation: {
+                            try await scanAPI.loadLibrary(excludedSectionKeys: excludedKeys) { [weak self] event in
+                                Task { @MainActor [weak self] in
+                                    guard let self else { return }
+                                    self.scanSectionIndex = event.sectionIndex
+                                    self.scanTotalSections = event.totalSections
+                                    self.scanItemsFound = baseCount + event.itemsLoadedSoFar
+                                    self.libraryLoadPhase = .scanningLibrary
+                                    let label: String
+                                    switch event.sectionType {
+                                    case "show": label = "TV shows"
+                                    case "movie":
+                                        let lower = event.sectionTitle.lowercased()
+                                        if lower.contains("music") { label = "Music" }
+                                        else { label = "Movies" }
+                                    case "artist": label = "Music"
+                                    case "photo": label = "Photos"
+                                    default: label = "Library"
+                                    }
+                                    let prefix = multiServer ? "\(serverLabel) · " : ""
+                                    if let done = event.showsCompleted, let total = event.totalShows {
+                                        self.libraryLoadDetail = "\(prefix)Section \(event.sectionIndex + 1)/\(event.totalSections) · \(done)/\(total) shows"
+                                        self.loadingMessage = self.libraryLoadPhase.headline(
+                                            detail: "\(label) \(done)/\(total)"
+                                        )
+                                    } else {
+                                        self.libraryLoadDetail = "\(prefix)Section \(event.sectionIndex + 1)/\(max(event.totalSections, 1)) · \(event.itemsLoadedSoFar) items"
+                                        self.loadingMessage = self.libraryLoadPhase.headline(detail: label)
+                                    }
+                                }
+                            }
+                        }
+                    )
+                    merged.append(contentsOf: items)
+                    successCount += 1
+                } catch let interrupted as LibraryScanInterrupted {
+                    // Abandoned partway, but whole sections came back. Those count as a
+                    // success: a reduced guide beats an error screen.
+                    print("[JFTV] LOAD: server '\(serverLabel)' abandoned with \(interrupted.partialItems.count) items already fetched")
+                    merged.append(contentsOf: interrupted.partialItems)
+                    if !interrupted.partialItems.isEmpty { successCount += 1 }
+                    scanWasAbandoned = true
+                    lastError = interrupted
+                } catch let stalled as LibraryLoadStalled {
+                    print("[JFTV] LOAD: server '\(serverLabel)' stalled (userInitiated=\(stalled.userInitiated))")
+                    scanWasAbandoned = true
+                    lastError = stalled
+                } catch {
+                    print("[JFTV] LOAD: server '\(serverLabel)' failed: \(error)")
+                    lastError = error
+                }
+            }
+            isLoadStalling = false
+            LibraryLoadProbe.mark("fetch")
+
+            // Nothing below this line may run for a sign-in that has ended.
+            if superseded() { return }
+
+            // Surface a connection error only when every server failed.
+            if successCount == 0 {
+                throw lastError ?? MediaServerKit.APIError.noReachableServer
+            }
+
+            // A background refresh that had to be abandoned is thrown away rather than
+            // applied. Its partial item list is a subset of what the user is already
+            // watching, so adopting it would shrink a working guide mid-program. Marking
+            // the library stale leaves the existing daily-refresh loop to try again.
+            if isBackground, scanWasAbandoned {
+                print("[JFTV] LOAD: background refresh abandoned mid-scan, keeping the loaded lineup")
+                isBackgroundRefreshing = false
+                isLibraryStale = true
+                return
+            }
+
+            merged = Self.dedupingItems(merged, servers: selectedServers)
+            // Belt and braces under the generation check: an item stamped with a server
+            // that is not signed in can never be played, so it never enters a pool.
+            let foreign = merged.filter { !itemBelongsToConnectedServers($0) }.count
+            if foreign > 0 {
+                print("[JFTV] LOAD: dropped \(foreign) item(s) from servers that are not signed in")
+                merged = merged.filter { itemBelongsToConnectedServers($0) }
+            }
+            allItems = merged
+            scanItemsFound = merged.count
+            let withTMDB = merged.filter { $0.tmdbID != nil }.count
+            let withIMDB = merged.filter { $0.imdbID != nil }.count
+            print("[JFTV] Library: \(merged.count) items from \(successCount) server(s), \(withTMDB) with TMDB IDs, \(withIMDB) with IMDb IDs")
+            LibraryLoadProbe.mark("merge+dedupe")
+
+            if hasAnyCollectionBundle {
+                await pulseLibraryPhase(.discoveringCollections)
+                await scanCollections()
+            } else {
+                print("[JFTV] COLLECTIONS: No collection bundles enabled, skipping scan")
+            }
+            LibraryLoadProbe.mark("collections")
+
+            let enrichableCount = allItems.filter { $0.tmdbID != nil || $0.imdbID != nil }.count
+            await pulseLibraryPhase(.enrichingMetadata, detail: "\(enrichableCount) titles")
+            await enrichmentService.enrichItems(
+                allItems,
+                omdbGates: OMDBGate.gates(from: config.channels.compactMap(\.rules))
+            )
+            await briefUILBeat()
+            LibraryLoadProbe.mark("enrichment")
+
+            // Collections and enrichment both waited on the network.
+            if superseded() { return }
+
+            applyMusicCacheToLibrary()
+            LibraryLoadProbe.mark("musicCache")
+            if isMusicBundleEnabled {
+                let musicVideoCount = allItems.filter { ($0.librarySource ?? .movie) == .musicVideo }.count
+                if musicVideoCount > 0 {
+                    print("[JFTV] Music: deferring MusicBrainz for \(musicVideoCount) videos until after tune-in")
+                }
+            }
+
+            channelConfigChannels = config.channels
+            let poolChannelIDs = staticChannelIDsForPoolBuild(buildAllConfigChannels: buildAllConfigChannels)
+            print("[JFTV] CHANNEL BUILD: firstLoad=\(buildAllConfigChannels), building \(poolChannelIDs.count) static channels")
+
+            setLibraryPhase(.buildingChannels, detail: buildAllConfigChannels ? "Full lineup" : "Enabled bundles")
+            let staticBuilt = await rebuildStaticChannelPools(
+                configChannels: config.channels,
+                items: allItems,
+                onlyChannelIDs: poolChannelIDs
+            )
+
+            // The pool build ran off the main actor.
+            if superseded() { return }
+
+            let dynamicChannels = allChannels.filter { $0.rules == nil }
+            allChannels = (staticBuilt + dynamicChannels).sorted { $0.number < $1.number }
+            LibraryLoadProbe.mark("channelsMerged")
+
+            // Enrichment has landed and the classics are built: decide which franchises
+            // the library holds, fold any server collection that is one of them, and
+            // rebuild the runtime channels from both lists.
+            rebuildFoundFranchises()
+            materializeDynamicChannels()
+
+            setLibraryPhase(.finishing)
+            print("[JFTV] BUNDLES: \(bundles.map { "\($0.name)(\($0.channelIDs.count)ch, \($0.enabled ? "ON" : "OFF"))" }.joined(separator: ", "))")
+            print("[JFTV] allChannels: \(allChannels.count), enabledBundleIDs: \(enabledBundleIDs)")
+
+            printChannelAudit()
+            LibraryLoadProbe.mark("channelAudit")
+            applyBundleFilter()
+            // New user whose enabled bundle didn't match their library: pull in any other
+            // bundle that does have content so they land in a real guide, not the dead end.
+            if channels.isEmpty {
+                autoEnableBundlesWithContent()
+            }
+            // A partial scan must not count as the first load: that flag is what stops
+            // later loads from rebuilding every channel, and the channels built here were
+            // matched against an incomplete library.
+            if !scanWasAbandoned {
+                markInitialLibraryLoadComplete()
+            }
+            isLoading = false
+            isBackgroundRefreshing = false
+            isLibraryStale = scanWasAbandoned
+            LibraryLoadProbe.mark("guideVisible")
+
+            // Library refresh: only purge yesterday's (and older) manifests. Today's
+            // schedule is already self-invalidating via pool fingerprint inside
+            // DailyManifestStore — leave it alone so a background refresh can't
+            // reshuffle the EPG the user is currently watching.
+            let todayKey = DailyManifestStore.localDayKey(for: Date())
+            DailyManifestStore.purgeDays(keeping: todayKey, credentialFingerprint: scheduleCredentialFingerprint)
+
+            if isBackground {
+                libraryUpdateNotice = scanWasAbandoned ? "Lineup partly updated" : "Lineup updated"
+                if let current = currentChannel {
+                    selectChannel(current)
+                }
+            } else if currentChannel == nil, let first = channels.first {
+                selectChannel(first)
+            }
+
+            LibraryLoadProbe.mark("selectChannel")
+            startDeferredMusicEnrichmentIfNeeded()
+
+
+            // Record when this load completed (Unix seconds) — drives 24h
+            // rolling cache validity. A partial scan is backdated past that window, which
+            // does two jobs at once: the snapshot still restores instantly on the next
+            // launch (a reduced guide beats a cold start) but reads as stale, and the
+            // daily-refresh loop already running picks it up on its next 15-minute tick.
+            // The alternative, a new snapshot field, would invalidate every snapshot on
+            // every device.
+            let completedAt = Int(Date().timeIntervalSince1970)
+            let signature = scanWasAbandoned ? nil : await currentLibrarySignature()
+            // The signature request is one more await before the snapshot is written.
+            if superseded() { return }
+            LibraryLoadProbe.mark("signature")
+            lastLoadAtUnix = scanWasAbandoned ? completedAt - 86_400 : completedAt
+            librarySignature = signature
+            lastLibraryCheckAtUnix = completedAt
+            saveLibrarySnapshotIfNeeded()
+            LibraryLoadProbe.mark("snapshotSaved")
+
+            // The lineup only really changes on a load, so this is the cheap
+            // place to refresh what the Top Shelf shows. No-ops until the App
+            // Group exists.
+            refreshTopShelfSnapshot()
+
+            // Library loaded successfully — clear the "first-login" flag so future failures
+            // (e.g. server restart, token rotation) get the proper "session expired" message.
+            justAuthenticated = false
+            lastFailureDiagnostic = nil
+        } catch let api as MediaServerKit.APIError {
+            isLoading = false
+            isBackgroundRefreshing = false
+            isLoadStalling = false
+            print("[JFTV] loadLibrary failed: \(api)")
+            // A background refresh failure stays silent to the user.
+            if !isBackground {
+                errorMessage = Self.userFacingServerError(api, justAuthenticated: justAuthenticated, backend: backendKind)
+                lastFailureDiagnostic = diagnosticString(for: api)
+                if case .unauthorized = api, !justAuthenticated {
+                    await resolveUnauthorizedLoadFailure()
+                }
+            }
+        } catch is CancellationError {
+            isLoading = false
+            isBackgroundRefreshing = false
+            isLoadStalling = false
+            errorMessage = nil
+        } catch {
+            isLoading = false
+            isBackgroundRefreshing = false
+            isLoadStalling = false
+            print("[JFTV] loadLibrary failed: \(error)")
+            // A background refresh failure stays silent to the user.
+            if !isBackground {
+                errorMessage = Self.userFacingLoadLibraryError(error, backend: backendKind)
+                let host = URL(string: serverURL)?.host ?? "?"
+                if let stalled = error as? LibraryLoadStalled {
+                    lastFailureDiagnostic = "\(host) · stalled \(Int(stalled.secondsWithoutProgress))s"
+                } else {
+                    lastFailureDiagnostic = "\(host) · \((error as NSError).domain) \((error as NSError).code)"
+                }
+            }
+        }
+    }
+
+    // MARK: - Library snapshot (same-day relaunch avoids full Plex scan)
+
+    /// Restore lineup from disk when credentials match. Returns true even for stale (>24h) snapshots.
+    /// One small request per server. Nil whenever any server cannot answer, so an outage
+    /// or a backend without timestamps falls back to the ordinary scan rather than a skip.
+    func currentLibrarySignature() async -> String? {
+        guard !selectedServers.isEmpty else { return nil }
+        var parts: [String] = []
+        for server in selectedServers {
+            let backend = apiForServer(server)
+            guard let sections = try? await backend.loadSections(),
+                  let sig = LibraryChangeSignature.signature(serverID: server.machineIdentifier, sections: sections) else {
+                return nil
+            }
+            parts.append(sig)
+        }
+        return LibraryChangeSignature.combine(parts)
+    }
+
+    /// The 6h refresh, made to ask before it scans. A guide that hasn't changed on the
+    /// server is not rebuilt; past the 24h cap it is rebuilt regardless.
+    func refreshLibraryIfChanged() async {
+        let now = Int(Date().timeIntervalSince1970)
+        lastLibraryCheckAtUnix = now
+        let age = now - lastLoadAtUnix
+        let current = await currentLibrarySignature()
+        if LibraryChangeSignature.shouldSkipRefresh(ageSeconds: age, stored: librarySignature, current: current,
+                                                    hardCapSeconds: LibrarySnapshotStore.forceRefreshAfterSeconds) {
+            print("[JFTV] REFRESH: library unchanged on server (\(age / 3600)h since scan), skipping rebuild")
+            isLibraryStale = false
+            return
+        }
+        print("[JFTV] REFRESH: \(age / 3600)h since scan, signature \(current == nil ? "unavailable" : "changed"), reloading in background")
+        await loadLibrary(background: true)
+    }
+
+    /// Drops second copies of a title that arrived under two identities for the same server
+    /// (see dedupingServers). Keyed on the server's host plus ratingKey, so two genuinely
+    /// different servers that happen to reuse a ratingKey both keep their item.
+    static func dedupingItems(_ items: [PlexMediaItem], servers: [ServerRef]) -> [PlexMediaItem] {
+        func host(_ url: String) -> String {
+            guard let u = URL(string: url), let h = u.host?.lowercased() else { return url.lowercased() }
+            return "\(h):\(u.port ?? 32400)"
+        }
+        var hostByServerID: [String: String] = [:]
+        for s in servers { hostByServerID[s.machineIdentifier] = host(s.baseURL) }
+        func key(_ item: PlexMediaItem) -> String {
+            let sid = item.serverID ?? ""
+            return (hostByServerID[sid] ?? (sid.lowercased().hasPrefix("http") ? host(sid) : sid)) + "|" + item.ratingKey
+        }
+        // Find the duplicates first. Usually there are none, and then the input goes back
+        // as is instead of a second full copy of the library being built next to it.
+        var seen = Set<String>()
+        seen.reserveCapacity(items.count)
+        var duplicates = IndexSet()
+        for (i, item) in items.enumerated() where !seen.insert(key(item)).inserted {
+            duplicates.insert(i)
+        }
+        seen = []
+        guard !duplicates.isEmpty else { return items }
+        var out: [PlexMediaItem] = []
+        out.reserveCapacity(items.count - duplicates.count)
+        for (i, item) in items.enumerated() where !duplicates.contains(i) {
+            out.append(item)
+        }
+        if out.count != items.count {
+            print("[JFTV] LOAD: removed \(items.count - out.count) duplicate items (same server, two identities)")
+        }
+        return out
+    }
+
+    func restoreLibraryFromSnapshotIfNeeded() async -> Bool {
+        guard hasCredentials else {
+            InstallDiagnostics.note("snapshot: restore skipped, no credentials in memory")
+            return false
+        }
+        guard !isUITestStubLibrarySuccess else { return false }
+        // Reading and decoding the files is the slow part (seconds at 400k items); keep it
+        // off the main actor so the launch screen stays responsive.
+        let seed = snapshotIdentitySeed
+        var loaded: LibrarySnapshotStore.Loaded?
+        do {
+            loaded = try await Task.detached(priority: .userInitiated) {
+                try LibrarySnapshotStore.loadSnapshot(identity: seed)
+            }.value
+        } catch {
+            InstallDiagnostics.fail("snapshot: restore threw \(String(describing: error)), falling back to full scan")
+            return false
+        }
+        // `found` is the only owner of the decoded items from here on, so applying it can
+        // drop them as soon as the deduplicated copy exists.
+        guard var found = loaded else { return false }
+        loaded = nil
+        // A snapshot whose items were scanned from a server that is no longer signed in
+        // (written by a scan that outlived a Disconnect, before that was stopped) would
+        // restore a guide where nothing plays. Rescan instead.
+        let foreign = found.snapshot.allItems.reduce(0) { $0 + (itemBelongsToConnectedServers($1) ? 0 : 1) }
+        if foreign > 0 {
+            InstallDiagnostics.note("snapshot: \(foreign) of \(found.snapshot.allItems.count) items belong to a server that is not signed in, rescanning")
+            LibrarySnapshotStore.clear()
+            DailyManifestStore.clearAll(credentialFingerprint: scheduleCredentialFingerprint)
+            return false
+        }
+        let isStale = found.isStale
+        let fromLegacyFile = found.fromLegacyFile
+        applyLibrarySnapshot(&found.snapshot)
+        isLibraryStale = isStale
+        InstallDiagnostics.note("snapshot: restored, stale=\(isStale), enrichment rows=\(enrichmentService.cache.count)")
+        refillEnrichmentAfterRestoreIfNeeded()
+        if fromLegacyFile {
+            // One-time migration: write it back in the chunked format, which removes the
+            // legacy file on commit, so the next launch never decodes the big file again.
+            saveLibrarySnapshotIfNeeded()
+        }
+        return true
+    }
+
+    /// Takes the snapshot inout so its item array can be released as soon as the
+    /// deduplicated copy exists, instead of both living until the restore returns.
+    private func applyLibrarySnapshot(_ snap: inout LibrarySnapshotV1) {
+        // The rows carry the numbers of the build that saved them; this build's channels.json
+        // decides. Only differs after an update that renumbered the lineup.
+        let bundledNumbers = Dictionary(ChannelConfigLoader.loadBundled().channels.map { ($0.id, $0.number) },
+                                        uniquingKeysWith: { first, _ in first })
+        let renumbered = snap.renumberChannels(bundledNumbers)
+        if renumbered > 0 {
+            InstallDiagnostics.note("snapshot: \(renumbered) channels take this build's numbers")
+        }
+        var restored = Self.dedupingItems(snap.allItems, servers: selectedServers)
+        snap.allItems = []
+        musicEnrichmentService.loadDiskCache()
+        // Before any pool is rebuilt from this restore (a package switch, an iCloud lineup):
+        // the rows the last pass saved, so networks, keywords and scores are there (I-073).
+        enrichmentService.loadDiskCache()
+        restored = musicEnrichmentService.itemsWithDisplayMetadata(restored)
+        allItems = restored
+        restored = []
+
+        // id -> index into allItems, first occurrence wins (as refreshChannelPools resolved
+        // it). An index is 8 bytes; a dictionary of whole items cost ~500 bytes an entry.
+        var indexById: [String: Int] = [:]
+        indexById.reserveCapacity(allItems.count)
+        for (i, item) in allItems.enumerated() where indexById[item.id] == nil {
+            indexById[item.id] = i
+        }
+        let items = allItems
+        let lookup: (String) -> PlexMediaItem? = { id in indexById[id].map { items[$0] } }
+
+        serverName = snap.serverName
+        isConnected = true
+        errorMessage = nil
+        lastLoadAtUnix = snap.lastLoadAtUnix
+        librarySignature = snap.librarySignature
+
+        // The bundle list in UserDefaults is the latest choice, and may be newer than the
+        // snapshot (a toggle that never re-saved it, or a lineup that arrived from another
+        // Apple TV through iCloud while this one was off). Read it before the snapshot
+        // overwrites it.
+        let storedBundleIDs = AppDefaults.standard.stringArray(forKey: PreferenceSync.enabledBundlesKey)
+        enabledBundleIDs = Set(snap.enabledBundleIDList)
+        bundles = snap.bundleDefinitions.map { def in
+            def.toChannelBundle(enabled: enabledBundleIDs.contains(def.id))
+        }
+        exclusiveRules = snap.exclusiveRuleJSON.map { $0.toExclusiveRule() }
+        channelConfigChannels = snap.channelConfigRows.map {
+            Channel.fromSnapshotRow($0, itemLookup: lookup, includePool: false)
+        }
+        // Pools resolve against allItems, which already carries the music display metadata,
+        // so the old refreshChannelPools pass here (a second full id -> item dictionary)
+        // produced the same pools.
+        allChannels = snap.allChannelRows.map {
+            Channel.fromSnapshotRow($0, itemLookup: lookup, includePool: true)
+        }
+        discoveredCollections = snap.discoveredCollectionRows.map { $0.resolve(itemLookup: lookup) }
+        // The found list is restored as saved, with the viewer's current switches applied;
+        // `refillEnrichmentAfterRestoreIfNeeded` rebuilds it if the cache has to be refilled.
+        foundFranchises = (snap.foundFranchiseRows ?? []).map {
+            $0.resolve(itemLookup: lookup, enabledIDs: enabledFranchiseIDs, disabledIDs: disabledFranchiseIDs)
+        }
+
+        scanSectionIndex = 0
+        scanTotalSections = 0
+        scanItemsFound = allItems.count
+
+        // Collection lineup no longer exposes per-category toggles; keep bundles enabled when discoveries exist.
+        syncCollectionCategoryBundlesWithDiscoveries(persistPreferences: false)
+        let preferredBundleIDs = Self.preferredBundleIDsAfterSnapshot(
+            stored: storedBundleIDs, snapshotWithDiscoveries: enabledBundleIDs,
+            discoveredCategoryBundleIDs: Set(discoveredCollections.map(\.category.bundleID)))
+        if preferredBundleIDs == enabledBundleIDs { saveBundlePreferences() }
+        for i in bundles.indices {
+            bundles[i].enabled = enabledBundleIDs.contains(bundles[i].id)
+        }
+
+        // Runtime channels come back from the restored lists rather than the stored rows,
+        // so the found-franchise channel ids are known to applyBundleFilter. Same content,
+        // same numbering: the lists are what the rows were built from.
+        materializeDynamicChannels()
+        applyBundleFilter()
+        if currentChannel == nil, let first = channels.first {
+            selectChannel(first)
+        }
+        if preferredBundleIDs != enabledBundleIDs {
+            print("[Sync] snapshot lineup differs from the saved one, rebuilding to the saved lineup")
+            applyEnabledBundleIDs(preferredBundleIDs)
+        }
+        if discoveredCollections.contains(where: { $0.enabled != enabledCollectionKeys.contains($0.id) }) {
+            print("[Sync] snapshot collections differ from the saved ones, rebuilding")
+            applyEnabledCollectionKeys(enabledCollectionKeys)
+        }
+        print("[JFTV] Snapshot: restored from disk (no Plex crawl)")
+    }
+
+    /// True while no enrichment row is in memory for a library that has TMDB ids: a pool
+    /// built now cannot see networks, keywords or scores. Clears when the disk cache loads
+    /// or a pass lands.
+    var enrichmentPending: Bool {
+        enrichmentService.cache.isEmpty && allItems.contains { $0.tmdbID != nil }
+    }
+
+    /// The disk cache was missing or past its TTL on this restore, and the 6h refresh will
+    /// skip an unchanged library, so nothing else would fill it this session. Refill it in
+    /// the background (the shared Supabase cache answers nearly all of it) and refilter the
+    /// lineup when it lands, the way the web tuner's `onCacheReady` does. A no-op when
+    /// enrichment is not configured, when the library carries no TMDB ids, or in a UI stub.
+    @discardableResult
+    func refillEnrichmentAfterRestoreIfNeeded() -> Task<Void, Never>? {
+        guard enrichmentPending, !isUITestStubLibrarySuccess else { return nil }
+        guard EnrichmentService.missingConfiguration(
+            tmdbAPIKey: TMDBConfig.tmdbAPIKey, tmdbProxyURL: TMDBConfig.tmdbProxyURL,
+            supabaseURL: TMDBConfig.supabaseURL, supabaseAnonKey: TMDBConfig.supabaseAnonKey).isEmpty else { return nil }
+        let session = librarySessionGeneration
+        let items = allItems
+        let gates = OMDBGate.gates(from: channelConfigChannels.compactMap(\.rules))
+        print("[JFTV] ENRICHMENT: no cached rows after restore, refilling in the background")
+        let task = Task { [weak self] in
+            guard let self else { return }
+            await self.enrichmentService.enrichItems(items, omdbGates: gates)
+            guard !Task.isCancelled, session == self.librarySessionGeneration, !self.isLoading else { return }
+            guard !self.enrichmentService.cache.isEmpty else { return }
+            self.refilterChannelsWithEnrichment()
+            self.rebuildFoundFranchises()
+            self.materializeDynamicChannels()
+            self.applyBundleFilter()
+            self.saveLibrarySnapshotIfNeeded()
+        }
+        enrichmentRefillTask = task
+        return task
+    }
+
+    /// Captures the library on the main actor (copy-on-write, no copying) and writes it on
+    /// a background queue in chunks. Returns immediately.
+    func saveLibrarySnapshotIfNeeded() {
+        guard !isUITestStubLibrarySuccess else { return }
+        let payload = LibrarySnapshotStore.makePayload(
+            identity: snapshotIdentitySeed,
+            serverName: serverName,
+            librarySignature: librarySignature,
+            lastLoadAtUnix: lastLoadAtUnix,
+            allItems: allItems,
+            channelConfigChannels: channelConfigChannels,
+            allChannels: allChannels,
+            bundles: bundles,
+            enabledBundleIDs: enabledBundleIDs,
+            exclusiveRules: exclusiveRules,
+            discoveredCollections: discoveredCollections,
+            foundFranchises: foundFranchises
+        )
+        LibraryLoadProbe.mark("snapshot.capture")
+        LibrarySnapshotStore.saveInBackground(payload)
+    }
+}

@@ -1,4 +1,4 @@
-# Nostalgex (Jellyfin, Apple TV)
+# JFTV (Jellyfin, Apple TV)
 
 **Retro TV for your own Jellyfin library, on Apple TV.**
 
@@ -8,12 +8,12 @@ browser web tuner, the marketing site, the Docker container and the Roku port th
 the upstream repo have all been removed. What is left is the native tvOS app and the shared
 channel configuration it reads.
 
-Nostalgex turns your Jellyfin library into 130+ channels in 14 bundles, plus a channel for
+JFTV turns your Jellyfin library into 130+ channels in 14 bundles, plus a channel for
 every film series you own, with a real channel guide. Every channel plays on a set daily
 schedule, so tuning in feels like live TV. It never supplies any media of its own; everything
 streams from your Jellyfin server.
 
-![The Nostalgex channel guide on Apple TV](docs/images/nostalgex-guide.png)
+![The JFTV channel guide on Apple TV](docs/images/jftv-guide.png)
 
 ## Requirements
 
@@ -24,9 +24,9 @@ streams from your Jellyfin server.
 
 ## Build and run
 
-1. Open `Nostalgex/Nostalgex.xcodeproj` in Xcode.
+1. Open `JFTV/JFTV.xcodeproj` in Xcode.
 2. Pick your team under Signing & Capabilities.
-3. Select the `Nostalgex` scheme and an Apple TV (or the tvOS simulator) as the run destination.
+3. Select the `JFTV` scheme and an Apple TV (or the tvOS simulator) as the run destination.
 4. Build and run. On first launch, connect your Jellyfin server (sign in with a username and
    password, or Quick Connect), pick which libraries to scan, then flip channels with the Siri
    Remote.
@@ -35,7 +35,7 @@ No API keys are required. One optional extra is off unless you turn it on:
 
 | What | How to enable | What it adds |
 |---|---|---|
-| TMDB / Supabase metadata enrichment | Copy `Nostalgex/Secrets.example.xcconfig` to `Nostalgex/Secrets.xcconfig` and fill in `SUPABASE_URL` and `SUPABASE_ANON_KEY`. For a direct TMDB connection set `TMDB_API_KEY` as an environment variable in the Xcode scheme (read in `Services/TMDBConfig.swift`). | Keyword and collection data for finer channel rules. Without it, the enrichment-based channels stay empty. |
+| TMDB / Supabase metadata enrichment | Copy `JFTV/Secrets.example.xcconfig` to `JFTV/Secrets.xcconfig` and fill in `SUPABASE_URL` and `SUPABASE_ANON_KEY`. For a direct TMDB connection set `TMDB_API_KEY` as an environment variable in the Xcode scheme (read in `Services/TMDBConfig.swift`). | Keyword and collection data for finer channel rules. Without it, the enrichment-based channels stay empty. |
 
 The app has **no analytics, no telemetry and no payments** of any kind. Nothing leaves your
 network except requests to your own Jellyfin server and, if you enable the optional enrichment
@@ -44,13 +44,13 @@ above, the public TMDB/IMDb ids it looks up.
 ## Tests
 
 ```sh
-xcodebuild test -project Nostalgex/Nostalgex.xcodeproj -scheme Nostalgex \
+xcodebuild test -project JFTV/JFTV.xcodeproj -scheme JFTV \
   -destination 'platform=tvOS Simulator,name=Apple TV 4K (3rd generation)' \
-  -only-testing:NostalgexTests CODE_SIGN_IDENTITY="-" \
+  -only-testing:JFTVTests CODE_SIGN_IDENTITY="-" \
   CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO
 ```
 
-CI runs `NostalgexTests` on every push and pull request (`.github/workflows/ci.yml`).
+CI runs `JFTVTests` on every push and pull request (`.github/workflows/ci.yml`).
 
 ## How it works
 
@@ -70,7 +70,7 @@ CI runs `NostalgexTests` on every push and pull request (`.github/workflows/ci.y
 
 | Path | Purpose |
 |---|---|
-| `Nostalgex/` | The Xcode project, Swift sources and assets (the app). |
+| `JFTV/` | The Xcode project, Swift sources and assets (the app). |
 | `channels.json`, `channels-memberships.json`, `franchises.json` | Shared channel + bundle config, copied into the app bundle at build time. |
 | `CHANNELS.md` | Human-readable channel reference. |
 | `scripts/` | Golden-vector JSON fixtures the Swift tests read, plus the tvOS release helpers (`release-tvos.sh`, `asc.mjs`). |

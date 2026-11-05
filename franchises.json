@@ -1,7 +1,7 @@
 {
   "version": 1,
   "verified": "2026-10-11",
-  "about": "Franchise dictionary shared by the Apple TV app (FranchiseDictionary.swift) and the web tuner (scripts/nostalgex-franchise-builder.js). Every tmdbCollectionIDs entry was verified against the live TMDB API on 2026-10-11 (collection exists and holds the films named in its note). Edit this file only; both engines read it, and scripts/franchise-golden.json pins the grouping both must produce.",
+  "about": "Franchise dictionary shared by the Apple TV app (FranchiseDictionary.swift). Every tmdbCollectionIDs entry was verified against the live TMDB API on 2026-10-11 (collection exists and holds the films named in its note). Edit this file only; scripts/franchise-golden.json pins the grouping the app must produce. Upstream also shared it with a web tuner franchise builder, deleted in this fork.",
   "fields": {
     "canonicalName": "Channel-ready display name, upper-cased. Also the stable id: dict:<canonicalName>.",
     "stockChannelID": "The channels.json channel this franchise folds into, or null to build a dynamic channel.",

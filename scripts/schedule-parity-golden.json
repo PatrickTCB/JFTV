@@ -2,8 +2,8 @@
  "_about": [
   "What airs, and when, on every surface. The Apple TV is the reference.",
   "Generated, never hand-edited: fixtures from scripts/schedule-parity-golden.mjs, answers (expect) from",
-  "Nostalgex/NostalgexTests/ScheduleParityTests.swift running the app's own scheduler, guide, conflict rule,",
-  "tune and advance code. Checked by that test, by scripts/nostalgex-schedule-parity-smoke.mjs",
+  "JFTV/JFTVTests/ScheduleParityTests.swift running the app's own scheduler, guide, conflict rule,",
+  "tune and advance code. Checked by that test, by scripts/schedule-parity-smoke.mjs (upstream web-engine test, removed in this fork)",
   "(npm run test:schedule-parity, the web tuner and the Docker image) and by roku/tests.",
   "fixture: zone (every date in it is local there), fingerprint (the manifest store's key), items in the",
   "server's own shape (Plex ms and addedAt; Jellyfin and Emby RunTimeTicks and DateCreated), channels in",

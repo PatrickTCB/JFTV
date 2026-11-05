@@ -2,12 +2,12 @@
 
 A fork of Nostalgex stripped down to one surface: a **Jellyfin-only Apple TV app**. The Plex
 and Emby backends, the browser web tuner, the marketing site, the Docker container and the Roku
-port from the upstream repo have all been removed. Only the native tvOS app (`Nostalgex/`) and
+port from the upstream repo have all been removed. Only the native tvOS app (`JFTV/`) and
 the shared channel config it reads remain.
 
 ## What is here
 
-- `Nostalgex/` — the Xcode project and Swift sources. The app target is `Nostalgex` (tvOS 18+).
+- `JFTV/` — the Xcode project and Swift sources. The app target is `JFTV` (tvOS 18+).
   There is also a `TopShelf` extension target.
 - `channels.json`, `channels-memberships.json`, `franchises.json` — channel, bundle and
   franchise config at the repo root. A build phase ("Sync channel config") copies all three into
@@ -24,13 +24,13 @@ the shared channel config it reads remain.
 These are the product. A regression here is worse than a missing feature.
 
 - Never diagnose by reasoning alone. Build a harness, measure, then name a cause.
-- `NostalgexTests` must pass:
-  `xcodebuild test -project Nostalgex/Nostalgex.xcodeproj -scheme Nostalgex \
+- `JFTVTests` must pass:
+  `xcodebuild test -project JFTV/JFTV.xcodeproj -scheme JFTV \
    -destination 'platform=tvOS Simulator,name=Apple TV 4K (3rd generation)' \
-   -only-testing:NostalgexTests CODE_SIGN_IDENTITY="-" \
+   -only-testing:JFTVTests CODE_SIGN_IDENTITY="-" \
    CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO`
 - The generic media model types keep their legacy `Plex`-prefixed names (`PlexMediaItem`,
-  `PlexSection`, `PlexCollection`, the `[Plex90]` log prefix, the `Plex90App` entry point). These
+  `PlexSection`, `PlexCollection`, the `[JFTV]` log prefix, the `Plex90App` entry point). These
   are internal names only; there is no Plex support. Renaming them is a separate mechanical pass.
 - Backend-specific helpers that every client used to borrow from the Plex service now live in
   `Services/MediaServerKit.swift` (`APIError`, `clientID`, `compositeID`, `needsServerRemux`,

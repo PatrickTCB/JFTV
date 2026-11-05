@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "about": "Golden vectors for the channel pool filter. Read by BOTH Nostalgex/NostalgexTests/FilterGoldenTests.swift (AppState.filterItems, tvOS) and scripts/nostalgex-filter-golden-smoke.mjs (scripts/nostalgex-channel-filter.cjs, web tuner and Docker; npm run test:filter-golden). Each case is one item run against the SHIPPED channels.json, its exclusiveRules and channels-memberships.json. `in` lists channel ids (not numbers) the item must reach, `out` the ids it must not. Item fields: title, artist (music videos), episodeTitle, summary, originallyAvailableAt (YYYY-MM-DD, first aired), year, type (movie|episode), librarySource (movie|tv|musicVideo), genres, contentRating (as the server sends it, so GB-15 or FSK-16 for a Jellyfin library outside the US), duration (minutes, default 100), rating, studio, tmdbID (string; only when the case is about a manifest claim), and enrichment ({ keywords, productionCompanies, networks, tmdbGenres }; absent means not enriched), backend (plex|jellyfin|emby, default plex; the server the item came from) and doviProfile (Dolby Vision profile; absent means unknown). When a rule changes, change both engines, then update or add a case here.",
+  "about": "Golden vectors for the channel pool filter. Read by BOTH JFTV/JFTVTests/FilterGoldenTests.swift (AppState.filterItems, tvOS) and scripts/filter-golden-smoke.mjs (upstream web-engine test, removed in this fork) (scripts/channel-filter.cjs (upstream web-engine script, removed in this fork), web tuner and Docker; npm run test:filter-golden). Each case is one item run against the SHIPPED channels.json, its exclusiveRules and channels-memberships.json. `in` lists channel ids (not numbers) the item must reach, `out` the ids it must not. Item fields: title, artist (music videos), episodeTitle, summary, originallyAvailableAt (YYYY-MM-DD, first aired), year, type (movie|episode), librarySource (movie|tv|musicVideo), genres, contentRating (as the server sends it, so GB-15 or FSK-16 for a Jellyfin library outside the US), duration (minutes, default 100), rating, studio, tmdbID (string; only when the case is about a manifest claim), and enrichment ({ keywords, productionCompanies, networks, tmdbGenres }; absent means not enriched), backend (plex|jellyfin|emby, default plex; the server the item came from) and doviProfile (Dolby Vision profile; absent means unknown). When a rule changes, change both engines, then update or add a case here.",
   "cases": [
     {
       "name": "kicking-and-screaming-is-not-a-scream-film",
@@ -998,7 +998,7 @@
     },
     {
       "name": "emby-dolby-vision-5-film-is-on-no-channel",
-      "about": "Emby sends Dolby Vision profile 5 to Apple TV and browsers in a form they draw green and purple, so it goes on no channel (ChannelEligibility.swift, isLeftOffChannels in nostalgex-channel-filter.cjs). The same film with profile 8, without a profile, or from Jellyfin or Plex reaches these channels (the cases below).",
+      "about": "Emby sends Dolby Vision profile 5 to Apple TV and browsers in a form they draw green and purple, so it goes on no channel (ChannelEligibility.swift, isLeftOffChannels in channel-filter.cjs (upstream web-engine script, removed in this fork)). The same film with profile 8, without a profile, or from Jellyfin or Plex reaches these channels (the cases below).",
       "item": {
         "title": "Lab Clip Comedy",
         "year": 2003,
@@ -1600,7 +1600,7 @@
     },
     {
       "name": "rocky-iv-is-a-boxing-film",
-      "about": "Off the lock and off SANTA'S LIST and NOSTALGEX CHRISTMAS; HOLIDAZE keeps it as an editorial pick.",
+      "about": "Off the lock and off SANTA'S LIST and JFTV CHRISTMAS; HOLIDAZE keeps it as an editorial pick.",
       "item": {
         "title": "Rocky IV",
         "year": 1985,
@@ -2423,7 +2423,7 @@
     },
     {
       "name": "anime-narrow-genre-tag-alone-reaches-anime-ungated",
-      "about": "The narrow server genre tag 'Anime' (the same tag scripts/nostalgex-channel-filter.cjs's exclusiveRules reference for channel 60) is specific enough to reach ANIME on its own, same as STAND-UP's 'Stand-Up' tag: no TMDB keyword, no manifest claim.",
+      "about": "The narrow server genre tag 'Anime' (the same tag scripts/channel-filter.cjs (upstream web-engine script, removed in this fork)'s exclusiveRules reference for channel 60) is specific enough to reach ANIME on its own, same as STAND-UP's 'Stand-Up' tag: no TMDB keyword, no manifest claim.",
       "item": {
         "title": "A Server-Tagged Anime Nobody Added Yet",
         "year": 2026,
@@ -2536,7 +2536,7 @@
     },
     {
       "name": "anime-sci-fi-title-reaches-anime-via-fallback-and-stays-off-sci-fi",
-      "about": "ANIME and SCI-FI (channel 73) compete for the same titles (anime that's also sci-fi). SCI-FI's own genres.exclude (Animation/Family/Kids) already keeps every Animation-tagged title off it, manifest claim or not (see nostalgex-filter-smoke.mjs's Aladdin case); this confirms the new ANIME fallback path respects that the same way. No manifest claim, no editorial-override entry: reaches ANIME through the new fallback alone, stays off SCI-FI through SCI-FI's own exclude.",
+      "about": "ANIME and SCI-FI (channel 73) compete for the same titles (anime that's also sci-fi). SCI-FI's own genres.exclude (Animation/Family/Kids) already keeps every Animation-tagged title off it, manifest claim or not (see filter-smoke.mjs (upstream web-engine script, removed in this fork)'s Aladdin case); this confirms the new ANIME fallback path respects that the same way. No manifest claim, no editorial-override entry: reaches ANIME through the new fallback alone, stays off SCI-FI through SCI-FI's own exclude.",
       "item": {
         "title": "A New Sci-Fi Anime Nobody Added Yet",
         "year": 2026,
@@ -2820,8 +2820,8 @@
       ]
     },
     {
-      "name": "an-80s-comedy-movie-overlaps-nostalgex-lol-and-80s-lol",
-      "about": "NOSTALGEX LOL (3) keeps its own 1980-1999 range unsplit; 80S LOL (424) is additive and overlaps it for 1980s titles. The overlap is expected, not a bug.",
+      "name": "an-80s-comedy-movie-overlaps-jftv-lol-and-80s-lol",
+      "about": "JFTV LOL (3) keeps its own 1980-1999 range unsplit; 80S LOL (424) is additive and overlaps it for 1980s titles. The overlap is expected, not a bug.",
       "item": {
         "title": "Trading Places",
         "year": 1983,
@@ -2839,7 +2839,7 @@
     },
     {
       "name": "a-90s-comedy-movie-stays-off-80s-lol",
-      "about": "80S LOL is scoped to 1980-1989 only, so a 90s title stays on NOSTALGEX LOL alone.",
+      "about": "80S LOL is scoped to 1980-1989 only, so a 90s title stays on JFTV LOL alone.",
       "item": {
         "title": "Dumb and Dumber",
         "year": 1994,

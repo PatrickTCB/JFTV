@@ -2,8 +2,8 @@
   "version": 1,
   "about": [
     "The global Watershed setting (Settings > WATERSHED), checked against both engines.",
-    "Read by Nostalgex/NostalgexTests/WatershedGoldenTests.swift (Channel.filteredPool,",
-    "Channel.isWatershedHold) and scripts/nostalgex-watershed-smoke.mjs (plex-tuner.html's",
+    "Read by JFTV/JFTVTests/WatershedGoldenTests.swift (Channel.filteredPool,",
+    "Channel.isWatershedHold) and scripts/watershed-smoke.mjs (upstream web-engine test, removed in this fork) (plex-tuner.html's",
     "getTimeFilteredPool and isWatershedHold). Both must agree on which items remain in a",
     "channel's pool at a given local hour with the toggle on or off, and on whether a",
     "channel counts as a Watershed hold (pool emptied by the gate alone, not a genuinely",
